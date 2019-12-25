@@ -388,7 +388,7 @@ void mrbc_cleanup_alloc(void)
 //================================================================
 /*! allocate memory sub function.
 */
-static inline void * mrbc_raw_alloc_ff_sub(unsigned int alloc_size, unsigned int index)
+static inline FREE_BLOCK * mrbc_raw_alloc_ff_sub(unsigned int alloc_size, unsigned int index)
 {
   FREE_BLOCK *target = free_blocks[--index];
 
@@ -403,19 +403,7 @@ static inline void * mrbc_raw_alloc_ff_sub(unsigned int alloc_size, unsigned int
   // remove free_blocks index
   remove_index( target );
 
-  // split a block
-  FREE_BLOCK *release = split_block(target, alloc_size);
-  if( release != NULL ) {
-    add_free_block(release);
-  }
-
-#ifdef MRBC_DEBUG
-  memset( (uint8_t *)target + sizeof(USED_BLOCK), 0xaa,
-          target->size - sizeof(USED_BLOCK) );
-#endif
-  target->vm_id = 0;
-
-  return (uint8_t *)target + sizeof(USED_BLOCK);
+  return target;
 }
 
 
@@ -441,6 +429,8 @@ void * mrbc_raw_alloc(unsigned int size)
   int fli = FLI(index);
   int sli = SLI(index);
 
+  hal_lock();
+
   FREE_BLOCK *target = free_blocks[index];
   if( target != NULL ) goto FOUND_TARGET_BLOCK;
 
@@ -460,13 +450,13 @@ void * mrbc_raw_alloc(unsigned int size)
   }
 
   // Change strategy to First-fit.
-  void *ret = mrbc_raw_alloc_ff_sub( alloc_size, index );
-  if( ret ) return ret;
+  target = mrbc_raw_alloc_ff_sub( alloc_size, index );
+  if( target ) goto SPLIT_BLOCK;
 
   // else out of memory
   static const char msg[] = "Fatal error: Out of memory.\n";
   hal_write(1, msg, sizeof(msg)-1);
-  return NULL;  // ENOMEM
+  goto ERROR_EXIT;  // ENOMEM
 
 
  FOUND_FLI_SLI:
@@ -494,11 +484,14 @@ void * mrbc_raw_alloc(unsigned int size)
     target->next_free->prev_free = NULL;
   }
 
-  // split a block
-  FREE_BLOCK *release = split_block(target, alloc_size);
-  if( release != NULL ) {
-    add_free_block(release);
+ SPLIT_BLOCK: {
+    FREE_BLOCK *release = split_block(target, alloc_size);
+    if( release != NULL ) {
+      add_free_block(release);
+    }
   }
+
+  hal_unlock();
 
 #ifdef MRBC_DEBUG
   memset( (uint8_t *)target + sizeof(USED_BLOCK), 0xaa,
@@ -507,6 +500,11 @@ void * mrbc_raw_alloc(unsigned int size)
   target->vm_id = 0;
 
   return (uint8_t *)target + sizeof(USED_BLOCK);
+
+
+ ERROR_EXIT:
+  hal_unlock();
+  return NULL;
 }
 
 
@@ -522,6 +520,8 @@ void mrbc_raw_free(void *ptr)
 
   // check next block, merge?
   FREE_BLOCK *next = (FREE_BLOCK *)PHYS_NEXT(target);
+
+  hal_lock();
 
   if( IS_FREE_BLOCK(next) ) {
     remove_index(next);
@@ -539,6 +539,8 @@ void mrbc_raw_free(void *ptr)
 
   // target, add to index
   add_free_block(target);
+
+  hal_unlock();
 }
 
 
@@ -561,6 +563,8 @@ void * mrbc_raw_realloc(void *ptr, unsigned int size)
   // check minimum alloc size.
   if( alloc_size < MRBC_MIN_MEMORY_BLOCK_SIZE ) alloc_size = MRBC_MIN_MEMORY_BLOCK_SIZE;
 
+  hal_lock();
+
   // expand? part1.
   // next phys block is free and enough size?
   if( alloc_size > target->size ) {
@@ -575,9 +579,7 @@ void * mrbc_raw_realloc(void *ptr, unsigned int size)
   }
 
   // same size?
-  if( alloc_size == target->size ) {
-    return (uint8_t *)ptr;
-  }
+  if( alloc_size == target->size ) goto DONE;
 
   // shrink?
   if( alloc_size < target->size ) {
@@ -591,21 +593,26 @@ void * mrbc_raw_realloc(void *ptr, unsigned int size)
       }
       add_free_block(release);
     }
-
-    return (uint8_t *)ptr;
+    goto DONE;
   }
+
+  hal_unlock();
+
 
   // expand part2.
   // new alloc and copy
   uint8_t *new_ptr = mrbc_raw_alloc(size);
-  if( new_ptr == NULL ) return NULL;  // ENOMEM
+  if( new_ptr == NULL ) return NULL;	// ENOMEM
 
   memcpy(new_ptr, ptr, target->size - sizeof(USED_BLOCK));
   SET_VM_ID(new_ptr, target->vm_id);
-
   mrbc_raw_free(ptr);
-
   return new_ptr;
+
+
+ DONE:
+  hal_unlock();
+  return (uint8_t *)ptr;
 }
 
 
@@ -655,15 +662,19 @@ void mrbc_free_all(const struct VM *vm)
   void *free_target = NULL;
   int vm_id = vm->vm_id;
 
+  hal_lock();
   while( (uint8_t *)ptr < (memory_pool + memory_pool_size) ) {
     if( IS_USED_BLOCK(ptr) && (ptr->vm_id == vm_id) ) {
       if( free_target ) {
+	hal_unlock();
 	mrbc_raw_free(free_target);
+	hal_lock();
       }
       free_target = (char *)ptr + sizeof(USED_BLOCK);
     }
     ptr = (USED_BLOCK *)PHYS_NEXT(ptr);
   }
+  hal_unlock();
   if( free_target ) {
     mrbc_raw_free(free_target);
   }

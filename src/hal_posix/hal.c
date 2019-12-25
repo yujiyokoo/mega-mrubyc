@@ -15,6 +15,8 @@
 /***** System headers *******************************************************/
 #include <signal.h>
 #include <sys/time.h>
+#include <pthread.h>
+#include <assert.h>
 
 
 /***** Local headers ********************************************************/
@@ -29,7 +31,10 @@
 #ifndef MRBC_NO_TIMER
 static sigset_t sigset_, sigset2_;
 #endif
-
+static pthread_mutex_t mutex_critical_section_ = PTHREAD_MUTEX_INITIALIZER;
+#if defined(MRBC_DEBUG)
+static int flag_critical_section_;
+#endif
 
 /***** Global variables *****************************************************/
 /***** Signal catching functions ********************************************/
@@ -102,5 +107,39 @@ void hal_disable_irq(void)
   sigprocmask(SIG_BLOCK, &sigset_, &sigset2_);
 }
 
-
 #endif /* ifndef MRBC_NO_TIMER */
+
+
+//================================================================
+/*!@brief
+  enter global critical section
+
+*/
+void hal_lock(void)
+{
+#if defined(MRBC_DEBUG)
+  if( pthread_mutex_trylock( &mutex_critical_section_ ) != 0 ) {
+    assert(!"hal double lock detected.");
+  }
+  flag_critical_section_ = 1;
+#else
+  pthread_mutex_lock( &mutex_critical_section_ );
+#endif
+}
+
+
+//================================================================
+/*!@brief
+  leave global critical section
+
+*/
+void hal_unlock(void)
+{
+#if defined(MRBC_DEBUG)
+  if( !flag_critical_section_ ) {
+    assert(!"hal double unlock detected.");
+  }
+  flag_critical_section_ = 0;
+#endif
+  pthread_mutex_unlock( &mutex_critical_section_ );
+}

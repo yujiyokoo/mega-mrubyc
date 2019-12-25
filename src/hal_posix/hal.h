@@ -66,6 +66,9 @@ void hal_disable_irq(void);
 
 #endif
 
+void hal_lock(void);
+void hal_unlock(void);
+
 
 /***** Inline functions *****************************************************/
 
