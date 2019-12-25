@@ -20,8 +20,16 @@
 extern "C" {
 #endif
 
+/***** Feature test switches ************************************************/
+/***** System headers *******************************************************/
+/***** Local headers ********************************************************/
+/***** Constant values ******************************************************/
+/***** Macros ***************************************************************/
+/***** Typedefs *************************************************************/
 struct VM;
 
+/***** Global variables *****************************************************/
+/***** Function prototypes **************************************************/
 void mrbc_init_alloc(void *ptr, unsigned int size);
 void mrbc_cleanup_alloc(void);
 void *mrbc_raw_alloc(unsigned int size);
@@ -38,11 +46,20 @@ void mrbc_alloc_statistics(int *total, int *used, int *free, int *fragmentation)
 int mrbc_alloc_vm_used(int vm_id);
 
 
-// inline functions.
+/***** Inline functions *****************************************************/
+
+//================================================================
+/*! re-allocate memory
+*/
 static inline void * mrbc_realloc(const struct VM *vm, void *ptr, unsigned int size)
 {
   return mrbc_raw_realloc(ptr, size);
 }
+
+
+//================================================================
+/*! release memory
+*/
 static inline void mrbc_free(const struct VM *vm, void *ptr)
 {
   mrbc_raw_free(ptr);

@@ -13,15 +13,21 @@
   </pre>
 */
 
+
+/***** Feature test switches ************************************************/
+/***** System headers *******************************************************/
 #include "vm_config.h"
+#include <stdint.h>
 #include <stddef.h>
 #include <string.h>
 #include <assert.h>
+
+/***** Local headers ********************************************************/
 #include "vm.h"
 #include "alloc.h"
 #include "hal/hal.h"
 
-
+/***** Constant values ******************************************************/
 /*
   Layer 1st(f) and 2nd(s) model
   last 4bit is ignored
@@ -49,9 +55,22 @@
 # define MRBC_ALLOC_IGNORE_LSBS	  4	//                ~~~~
 #endif
 
+
+/***** Macros ***************************************************************/
 #define FLI(x) ((x) >> MRBC_ALLOC_SLI_BIT_WIDTH)
 #define SLI(x) ((x) & ((1 << MRBC_ALLOC_SLI_BIT_WIDTH) - 1))
 
+/*
+   Minimum memory block size parameter.
+   Choose large one From sizeof(FREE_BLOCK) or (1 << MRBC_ALLOC_IGNORE_LSBS)
+*/
+#if !defined(MRBC_MIN_MEMORY_BLOCK_SIZE)
+#define MRBC_MIN_MEMORY_BLOCK_SIZE sizeof(FREE_BLOCK)
+// #define MRBC_MIN_MEMORY_BLOCK_SIZE (1 << MRBC_ALLOC_IGNORE_LSBS)
+#endif
+
+
+/***** Typedefs *************************************************************/
 // memory block header
 #if defined(MRBC_ALLOC_16BIT)
 #define MRBC_ALLOC_MEMSIZE_T	uint16_t
@@ -101,6 +120,7 @@ typedef struct FREE_BLOCK {
 # error 'define MRBC_ALLOC_*' required.
 #endif
 
+// and operation macro
 #define SET_FREE_BLOCK(p) ((p)->flag_free = 1)
 #define SET_USED_BLOCK(p) ((p)->flag_free = 0)
 #define IS_FREE_BLOCK(p) ( (p)->flag_free)
@@ -115,16 +135,10 @@ typedef struct FREE_BLOCK {
 #define GET_VM_ID(p) \
   (((USED_BLOCK *)((uint8_t *)(p) - sizeof(USED_BLOCK)))->vm_id)
 
-/*
-   Minimum memory block size parameter.
-   Choose large one From sizeof(FREE_BLOCK) or (1 << MRBC_ALLOC_IGNORE_LSBS)
-*/
-#if !defined(MRBC_MIN_MEMORY_BLOCK_SIZE)
-#define MRBC_MIN_MEMORY_BLOCK_SIZE sizeof(FREE_BLOCK)
-// #define MRBC_MIN_MEMORY_BLOCK_SIZE (1 << MRBC_ALLOC_IGNORE_LSBS)
-#endif
 
 
+/***** Function prototypes **************************************************/
+/***** Local variables ******************************************************/
 // memory pool
 static uint8_t *memory_pool;
 static MRBC_ALLOC_MEMSIZE_T memory_pool_size;
@@ -142,6 +156,10 @@ static uint8_t  free_sli_bitmap[MRBC_ALLOC_FLI_BIT_WIDTH +1+1]; // + sentinel
 #define NLZ_FLI(x) nlz16(x)
 #define NLZ_SLI(x) nlz8(x)
 
+
+/***** Global variables *****************************************************/
+/***** Signal catching functions ********************************************/
+/***** Local functions ******************************************************/
 
 //================================================================
 /*! Number of leading zeros. 16bit version.
@@ -320,6 +338,7 @@ static void merge_block(FREE_BLOCK *ptr1, FREE_BLOCK *ptr2)
 }
 
 
+/***** Global functions *****************************************************/
 //================================================================
 /*! initialize
 
@@ -369,7 +388,7 @@ void mrbc_cleanup_alloc(void)
 //================================================================
 /*! allocate memory sub function.
 */
-static void * mrbc_raw_alloc_ff_sub(unsigned int alloc_size, unsigned int index)
+static inline void * mrbc_raw_alloc_ff_sub(unsigned int alloc_size, unsigned int index)
 {
   FREE_BLOCK *target = free_blocks[--index];
 
