@@ -21,11 +21,11 @@ extern "C" {
 /***** Feature test switches ************************************************/
 /***** System headers *******************************************************/
 #include <unistd.h>
+#include <pthread.h>
 
 
 /***** Local headers ********************************************************/
 /***** Constant values ******************************************************/
-/***** Macros ***************************************************************/
 #ifndef MRBC_SCHEDULER_EXIT
 #define MRBC_SCHEDULER_EXIT 1
 #endif
@@ -49,6 +49,11 @@ extern "C" {
 
 /***** Typedefs *************************************************************/
 /***** Global variables *****************************************************/
+extern pthread_mutex_t mutex_critical_section_;
+extern volatile int flag_critical_section_;
+extern volatile pthread_t hold_thread;
+
+
 /***** Function prototypes **************************************************/
 void mrbc_tick(void);
 
@@ -66,12 +71,33 @@ void hal_disable_irq(void);
 
 #endif
 
-void hal_lock(void);
-void hal_unlock(void);
+
+/***** Macros ***************************************************************/
+#if 0
+#define hal_lock() do { \
+    if( flag_critical_section_ && pthread_equal( pthread_self(), hold_thread )) \
+      assert(!"hal double lock detected.");				\
+    if( pthread_mutex_trylock( &mutex_critical_section_ ) == 0 ) {	\
+      hold_thread = pthread_self();					\
+      flag_critical_section_ = 1;					\
+      break;								\
+    }									\
+  } while(1)
+
+#define hal_unlock() do { \
+    if( !flag_critical_section_ ) assert(!"hal double UNLOCK detected."); \
+    if( !pthread_equal( pthread_self(), hold_thread ) ) assert(!"hal bad unlock thread."); \
+    flag_critical_section_ = 0;						\
+    pthread_mutex_unlock( &mutex_critical_section_ );			\
+  } while(0)
+
+#else
+#define hal_lock()   pthread_mutex_lock( &mutex_critical_section_ )
+#define hal_unlock() pthread_mutex_unlock( &mutex_critical_section_ )
+#endif
 
 
 /***** Inline functions *****************************************************/
-
 //================================================================
 /*!@brief
   Write
