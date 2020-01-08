@@ -78,37 +78,39 @@ typedef struct USED_BLOCK {
   unsigned int         flag_free : 1;	//!< Free block or used block flag.
   uint8_t	       vm_id;		//!< mruby/c VM ID
   MRBC_ALLOC_MEMSIZE_T size;		//!< block size, header included
-  MRBC_ALLOC_MEMSIZE_T prev_offset;	//!< offset of previous physical block
+  MRBC_ALLOC_MEMSIZE_T volatile prev_offset;	//!< offset of previous physical block
 } USED_BLOCK;
 
 typedef struct FREE_BLOCK {
   unsigned int         flag_free : 1;	//!< Free block or used block flag.
   uint8_t	       vm_id;		//!< dummy
   MRBC_ALLOC_MEMSIZE_T size;		//!< block size, header included
-  MRBC_ALLOC_MEMSIZE_T prev_offset;	//!< offset of previous physical block
+  MRBC_ALLOC_MEMSIZE_T volatile prev_offset;	//!< offset of previous physical block
 
-  struct FREE_BLOCK *next_free;
-  struct FREE_BLOCK *prev_free;
+  struct FREE_BLOCK * volatile next_free;
+  struct FREE_BLOCK * volatile prev_free;
 } FREE_BLOCK;
+
 
 #elif defined(MRBC_ALLOC_24BIT)
 #define MRBC_ALLOC_MEMSIZE_T	uint32_t
 typedef struct USED_BLOCK {
-  MRBC_ALLOC_MEMSIZE_T size;		//!< block size, header included
   unsigned int         flag_free : 1;	//!< Free block or used block flag.
   uint8_t	       vm_id : 7;	//!< mruby/c VM ID
-  MRBC_ALLOC_MEMSIZE_T prev_offset : 24;//!< offset of previous physical block
+  MRBC_ALLOC_MEMSIZE_T size : 24;	//!< block size, header included
+  MRBC_ALLOC_MEMSIZE_T volatile prev_offset;	//!< offset of previous physical block
 } USED_BLOCK;
 
 typedef struct FREE_BLOCK {
-  MRBC_ALLOC_MEMSIZE_T size;		//!< block size, header included
   unsigned int         flag_free : 1;	//!< Free block or used block flag.
   uint8_t	       vm_id : 7;	//!< dummy
-  MRBC_ALLOC_MEMSIZE_T prev_offset : 24;//!< offset of previous physical block
+  MRBC_ALLOC_MEMSIZE_T size : 24;	//!< block size, header included
+  MRBC_ALLOC_MEMSIZE_T volatile prev_offset;	//!< offset of previous physical block
 
-  struct FREE_BLOCK *next_free;
-  struct FREE_BLOCK *prev_free;
+  struct FREE_BLOCK * volatile next_free;
+  struct FREE_BLOCK * volatile prev_free;
 } FREE_BLOCK;
+
 
 #elif defined(MRBC_ALLOC_LIBC)
 // TODO
@@ -146,11 +148,11 @@ static MRBC_ALLOC_MEMSIZE_T memory_pool_size;
 // free memory block index
 #define SIZE_FREE_BLOCKS \
   ((MRBC_ALLOC_FLI_BIT_WIDTH + 1) * (1 << MRBC_ALLOC_SLI_BIT_WIDTH))
-static FREE_BLOCK *free_blocks[SIZE_FREE_BLOCKS + 1];
+static FREE_BLOCK * volatile free_blocks[SIZE_FREE_BLOCKS + 1];
 
 // free memory bitmap
-static uint16_t free_fli_bitmap;
-static uint8_t  free_sli_bitmap[MRBC_ALLOC_FLI_BIT_WIDTH +1+1]; // + sentinel
+static volatile uint16_t free_fli_bitmap;
+static volatile uint8_t  free_sli_bitmap[MRBC_ALLOC_FLI_BIT_WIDTH +1+1]; // + sentinel
 #define MSB_BIT1_FLI 0x8000
 #define MSB_BIT1_SLI 0x80
 #define NLZ_FLI(x) nlz16(x)
@@ -296,14 +298,13 @@ static void remove_index(FREE_BLOCK *target)
 /*! Split block by size
 
   @param  target	pointer to target block
-  @param  size	size
-  @retval NULL	no split.
+  @param  size		size
+  @retval NULL		no split.
   @retval FREE_BLOCK *	pointer to splitted free block.
 */
 static inline FREE_BLOCK* split_block(FREE_BLOCK *target, unsigned int size)
 {
-  if( target->size < (size + sizeof(FREE_BLOCK)
-                      + (1 << MRBC_ALLOC_IGNORE_LSBS)) ) return NULL;
+  if( (target->size - size) <= MRBC_MIN_MEMORY_BLOCK_SIZE ) return NULL;
 
   // split block, free
   FREE_BLOCK *split = (FREE_BLOCK *)((uint8_t *)target + size);
@@ -379,9 +380,9 @@ void mrbc_init_alloc(void *ptr, unsigned int size)
 void mrbc_cleanup_alloc(void)
 {
   memory_pool = NULL;
-  memset( free_blocks, 0, sizeof(free_blocks) );
+  memset( (void*)free_blocks, 0, sizeof(free_blocks) );
   free_fli_bitmap = 0;
-  memset( free_sli_bitmap, 0, sizeof(free_sli_bitmap) );
+  memset( (void*)free_sli_bitmap, 0, sizeof(free_sli_bitmap) );
 }
 
 
@@ -456,7 +457,8 @@ void * mrbc_raw_alloc(unsigned int size)
   // else out of memory
   static const char msg[] = "Fatal error: Out of memory.\n";
   hal_write(1, msg, sizeof(msg)-1);
-  goto ERROR_EXIT;  // ENOMEM
+  hal_unlock();
+  return NULL;
 
 
  FOUND_FLI_SLI:
@@ -500,11 +502,6 @@ void * mrbc_raw_alloc(unsigned int size)
   target->vm_id = 0;
 
   return (uint8_t *)target + sizeof(USED_BLOCK);
-
-
- ERROR_EXIT:
-  hal_unlock();
-  return NULL;
 }
 
 
@@ -625,7 +622,7 @@ void * mrbc_raw_realloc(void *ptr, unsigned int size)
 int is_allocated_memory(void *tgt)
 {
   // check simply.
-  return ((void *)memory_pool < tgt) &&
+  return ((void *)memory_pool <= tgt) &&
     (tgt < (void *)(memory_pool + memory_pool_size));
 }
 
