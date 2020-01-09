@@ -3,8 +3,8 @@
   mruby bytecode executor.
 
   <pre>
-  Copyright (C) 2015-2019 Kyushu Institute of Technology.
-  Copyright (C) 2015-2019 Shimane IT Open-Innovation Center.
+  Copyright (C) 2015-2020 Kyushu Institute of Technology.
+  Copyright (C) 2015-2020 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
 
@@ -14,6 +14,7 @@
 */
 
 #include "vm_config.h"
+#include "hal/hal.h"
 #include <stddef.h>
 #include <string.h>
 #include <assert.h>
@@ -33,28 +34,8 @@
 #include "c_hash.h"
 
 
-static uint32_t free_vm_bitmap[MAX_VM_COUNT / 32 + 1];
-#define FREE_BITMAP_WIDTH 32
+static uint16_t free_vm_bitmap[MAX_VM_COUNT / 16 + 1];
 #define Num(n) (sizeof(n)/sizeof((n)[0]))
-
-
-//================================================================
-/*! Number of leading zeros.
-
-  @param	x	target (32bit unsined)
-  @retval	int	nlz value
-*/
-static inline int nlz32(uint32_t x)
-{
-  if( x == 0 ) return 32;
-
-  int n = 1;
-  if((x >> 16) == 0 ) { n += 16; x <<= 16; }
-  if((x >> 24) == 0 ) { n +=  8; x <<=  8; }
-  if((x >> 28) == 0 ) { n +=  4; x <<=  4; }
-  if((x >> 30) == 0 ) { n +=  2; x <<=  2; }
-  return n - (x >> 31);
-}
 
 
 //================================================================
@@ -2612,28 +2593,31 @@ static inline int op_abort( mrbc_vm *vm, mrbc_value *regs )
 */
 mrbc_vm *mrbc_vm_open( struct VM *vm_arg )
 {
-  mrbc_vm *vm;
-  if( (vm = vm_arg) == NULL ) {
+  mrbc_vm *vm = vm_arg;
+
+  if( vm == NULL ) {
     // allocate memory.
     vm = (mrbc_vm *)mrbc_raw_alloc( sizeof(mrbc_vm) );
     if( vm == NULL ) return NULL;
   }
 
   // allocate vm id.
-  int vm_id = 0;
-  int i;
-  for( i = 0; i < Num(free_vm_bitmap); i++ ) {
-    int n = nlz32( ~free_vm_bitmap[i] );
-    if( n < FREE_BITMAP_WIDTH ) {
-      free_vm_bitmap[i] |= (1 << (FREE_BITMAP_WIDTH - n - 1));
-      vm_id = i * FREE_BITMAP_WIDTH + n + 1;
+  int vm_id;
+  hal_lock();
+  for( vm_id = 0; vm_id < MAX_VM_COUNT; vm_id++ ) {
+    int idx = vm_id >> 4;
+    int bit = 1 << (vm_id & 0x0f);
+    if( (free_vm_bitmap[idx] & bit) == 0 ) {
+      free_vm_bitmap[idx] |= bit;		// found
       break;
     }
   }
-  if( vm_id == 0 ) {
-    if( vm_arg == NULL ) mrbc_raw_free(vm);
+  hal_unlock();
+  if( vm_id == MAX_VM_COUNT ) {
+    mrbc_raw_free(vm);
     return NULL;
   }
+  vm_id++;
 
   // initialize attributes.
   memset(vm, 0, sizeof(mrbc_vm));	// caution: assume NULL is zero.
@@ -2658,10 +2642,11 @@ mrbc_vm *mrbc_vm_open( struct VM *vm_arg )
 void mrbc_vm_close( struct VM *vm )
 {
   // free vm id.
-  int i = (vm->vm_id-1) / FREE_BITMAP_WIDTH;
-  int n = (vm->vm_id-1) % FREE_BITMAP_WIDTH;
-  assert( i < Num(free_vm_bitmap) );
-  free_vm_bitmap[i] &= ~(1 << (FREE_BITMAP_WIDTH - n - 1));
+  int idx = (vm->vm_id-1) >> 4;
+  int bit = 1 << ((vm->vm_id-1) & 0x0f);
+  hal_lock();
+  free_vm_bitmap[idx] &= ~bit;
+  hal_unlock();
 
   // free irep and vm
   if( vm->irep ) mrbc_irep_free( vm->irep );
@@ -2812,7 +2797,7 @@ int mrbc_vm_run( struct VM *vm )
     // Dispatch
     uint8_t op = *vm->inst++;
 
-    // output OP_XXX for debug 
+    // output OP_XXX for debug
     //if( vm->flag_debug_mode )output_opcode( op );
 
     switch( op ) {
