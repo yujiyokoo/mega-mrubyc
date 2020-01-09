@@ -25,7 +25,6 @@ extern "C" {
 
 /***** Local headers ********************************************************/
 /***** Constant values ******************************************************/
-/***** Macros ***************************************************************/
 #if !defined(MRBC_TICK_UNIT)
 #define MRBC_TICK_UNIT_1_MS   1
 #define MRBC_TICK_UNIT_2_MS   2
@@ -62,6 +61,11 @@ extern "C" {
 /***** Function prototypes **************************************************/
 int hal_write(int fd, const void *buf, int nbytes);
 int hal_flush(int fd);
+
+
+/***** Macros ***************************************************************/
+#define hal_lock()   ((void)0)	// dummy yet.
+#define hal_unlock() ((void)0)
 
 
 /***** Inline functions *****************************************************/

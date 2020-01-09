@@ -27,7 +27,6 @@ extern "C" {
 
 /***** Local headers ********************************************************/
 /***** Constant values ******************************************************/
-/***** Macros ***************************************************************/
 #ifndef MRBC_SCHEDULER_EXIT
 #define MRBC_SCHEDULER_EXIT 1
 #endif
@@ -70,6 +69,11 @@ void hal_disable_irq(void);
                              mrbc_tick())
 
 #endif
+
+
+/***** Macros ***************************************************************/
+#define hal_lock()   ((void)0)	// dummy yet.
+#define hal_unlock() ((void)0)
 
 
 /***** Inline functions *****************************************************/
