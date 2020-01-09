@@ -4,8 +4,8 @@
         for POSIX
 
   <pre>
-  Copyright (C) 2016 Kyushu Institute of Technology.
-  Copyright (C) 2016 Shimane IT Open-Innovation Center.
+  Copyright (C) 2016-2020 Kyushu Institute of Technology.
+  Copyright (C) 2016-2020 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
   </pre>
@@ -26,35 +26,32 @@
 /***** Typedefs *************************************************************/
 /***** Function prototypes **************************************************/
 /***** Local variables ******************************************************/
-#ifndef MRBC_NO_TIMER
+#if !defined(MRBC_NO_TIMER)
 static sigset_t sigset_, sigset2_;
 #endif
+#if defined(MRBC_ENABLE_HAL_LOCK) || defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
 pthread_mutex_t mutex_critical_section_ = PTHREAD_MUTEX_INITIALIZER;
 volatile int flag_critical_section_;
 volatile pthread_t hold_thread;
-
+#endif
 
 /***** Global variables *****************************************************/
 /***** Signal catching functions ********************************************/
-#ifndef MRBC_NO_TIMER
+#if !defined(MRBC_NO_TIMER)
 //================================================================
 /*!@brief
   alarm signal handler
-
 */
 static void sig_alarm(int dummy)
 {
   mrbc_tick();
 }
-
-
 #endif
 
 
 /***** Local functions ******************************************************/
 /***** Global functions *****************************************************/
-#ifndef MRBC_NO_TIMER
-
+#if !defined(MRBC_NO_TIMER)
 //================================================================
 /*!@brief
   initialize
@@ -104,6 +101,4 @@ void hal_disable_irq(void)
 {
   sigprocmask(SIG_BLOCK, &sigset_, &sigset2_);
 }
-
-
-#endif /* ifndef MRBC_NO_TIMER */
+#endif /* if !defined(MRBC_NO_TIMER) */

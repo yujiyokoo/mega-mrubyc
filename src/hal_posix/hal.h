@@ -4,8 +4,8 @@
         for POSIX
 
   <pre>
-  Copyright (C) 2016 Kyushu Institute of Technology.
-  Copyright (C) 2016 Shimane IT Open-Innovation Center.
+  Copyright (C) 2016-2020 Kyushu Institute of Technology.
+  Copyright (C) 2016-2020 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
   </pre>
@@ -73,8 +73,12 @@ void hal_disable_irq(void);
 
 
 /***** Macros ***************************************************************/
-#if 0
-#define hal_lock() do { \
+#if defined(MRBC_ENABLE_HAL_LOCK)
+# define hal_lock()   pthread_mutex_lock( &mutex_critical_section_ )
+# define hal_unlock() pthread_mutex_unlock( &mutex_critical_section_ )
+
+#elif defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
+# define hal_lock() do { \
     if( flag_critical_section_ && pthread_equal( pthread_self(), hold_thread )) \
       assert(!"hal double lock detected.");				\
     if( pthread_mutex_trylock( &mutex_critical_section_ ) == 0 ) {	\
@@ -84,7 +88,7 @@ void hal_disable_irq(void);
     }									\
   } while(1)
 
-#define hal_unlock() do { \
+# define hal_unlock() do { \
     if( !flag_critical_section_ ) assert(!"hal double UNLOCK detected."); \
     if( !pthread_equal( pthread_self(), hold_thread ) ) assert(!"hal bad unlock thread."); \
     flag_critical_section_ = 0;						\
@@ -92,8 +96,8 @@ void hal_disable_irq(void);
   } while(0)
 
 #else
-#define hal_lock()   pthread_mutex_lock( &mutex_critical_section_ )
-#define hal_unlock() pthread_mutex_unlock( &mutex_critical_section_ )
+# define hal_lock()   ((void)0)
+# define hal_unlock() ((void)0)
 #endif
 
 
