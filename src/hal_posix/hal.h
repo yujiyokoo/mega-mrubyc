@@ -76,14 +76,24 @@ void hal_init(void);
 # define hal_unlock() pthread_mutex_unlock( &mutex_critical_section_ )
 
 #elif defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
-# define hal_lock() do { \
+# define hal_lock() do {					\
     int r = pthread_mutex_lock( &mutex_critical_section_ );	\
-    if( r ) fprintf( stderr, "HAL LOCK ERROR: %s\n", strerror(r) );	\
+    if( r ) {							\
+      static const char msg[] = "HAL LOCK ERROR: ";		\
+      hal_write(1, msg, sizeof(msg)-1);				\
+      hal_write(1, strerror(r), strlen(strerror(r)));		\
+      hal_write(1, "\n", 1);					\
+    }								\
   } while(0)
 
-# define hal_unlock() do { \
+# define hal_unlock() do {					\
     int r = pthread_mutex_unlock( &mutex_critical_section_ );	\
-    if( r ) fprintf( stderr, "HAL UNLOCK ERROR: %s\n", strerror(r) );	\
+    if( r ) {							\
+      static const char msg[] = "HAL UnLOCK ERROR: ";		\
+      hal_write(1, msg, sizeof(msg)-1);				\
+      hal_write(1, strerror(r), strlen(strerror(r)));		\
+      hal_write(1, "\n", 1);					\
+    }								\
   } while(0)
 
 #else
