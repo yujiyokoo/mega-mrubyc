@@ -50,8 +50,6 @@ extern "C" {
 /***** Typedefs *************************************************************/
 /***** Global variables *****************************************************/
 extern pthread_mutex_t mutex_critical_section_;
-extern volatile int flag_critical_section_;
-extern volatile pthread_t hold_thread;
 
 
 /***** Function prototypes **************************************************/
@@ -64,7 +62,7 @@ void hal_disable_irq(void);
 # define hal_idle_cpu()    sleep(1) // maybe interrupt by SIGINT
 
 #else // MRBC_NO_TIMER
-# define hal_init()        ((void)0)
+void hal_init(void);
 # define hal_enable_irq()  ((void)0)
 # define hal_disable_irq() ((void)0)
 # define hal_idle_cpu()    (usleep(MRBC_TICK_UNIT * 1000), mrbc_tick())
@@ -79,20 +77,13 @@ void hal_disable_irq(void);
 
 #elif defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
 # define hal_lock() do { \
-    if( flag_critical_section_ && pthread_equal( pthread_self(), hold_thread )) \
-      assert(!"hal double lock detected.");				\
-    if( pthread_mutex_trylock( &mutex_critical_section_ ) == 0 ) {	\
-      hold_thread = pthread_self();					\
-      flag_critical_section_ = 1;					\
-      break;								\
-    }									\
-  } while(1)
+    int r = pthread_mutex_lock( &mutex_critical_section_ );	\
+    if( r ) fprintf( stderr, "HAL LOCK ERROR: %s\n", strerror(r) );	\
+  } while(0)
 
 # define hal_unlock() do { \
-    if( !flag_critical_section_ ) assert(!"hal double UNLOCK detected."); \
-    if( !pthread_equal( pthread_self(), hold_thread ) ) assert(!"hal bad unlock thread."); \
-    flag_critical_section_ = 0;						\
-    pthread_mutex_unlock( &mutex_critical_section_ );			\
+    int r = pthread_mutex_unlock( &mutex_critical_section_ );	\
+    if( r ) fprintf( stderr, "HAL UNLOCK ERROR: %s\n", strerror(r) );	\
   } while(0)
 
 #else

@@ -26,14 +26,10 @@
 /***** Typedefs *************************************************************/
 /***** Function prototypes **************************************************/
 /***** Local variables ******************************************************/
-#if !defined(MRBC_NO_TIMER)
 static sigset_t sigset_, sigset2_;
-#endif
-#if defined(MRBC_ENABLE_HAL_LOCK) || defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
 pthread_mutex_t mutex_critical_section_ = PTHREAD_MUTEX_INITIALIZER;
-volatile int flag_critical_section_;
-volatile pthread_t hold_thread;
-#endif
+static pthread_mutexattr_t mutex_attr_;
+
 
 /***** Global variables *****************************************************/
 /***** Signal catching functions ********************************************/
@@ -51,7 +47,6 @@ static void sig_alarm(int dummy)
 
 /***** Local functions ******************************************************/
 /***** Global functions *****************************************************/
-#if !defined(MRBC_NO_TIMER)
 //================================================================
 /*!@brief
   initialize
@@ -59,6 +54,7 @@ static void sig_alarm(int dummy)
 */
 void hal_init(void)
 {
+#if !defined(MRBC_NO_TIMER)
   sigemptyset(&sigset_);
   sigaddset(&sigset_, SIGALRM);
 
@@ -78,9 +74,18 @@ void hal_init(void)
   tval.it_value.tv_sec     = sec;
   tval.it_value.tv_usec    = usec;
   setitimer(ITIMER_REAL, &tval, 0);
+#endif // !defined(MRBC_NO_TIMER)
+
+#if defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
+  // mutex準備
+  pthread_mutexattr_init( &mutex_attr_ );
+  pthread_mutexattr_settype( &mutex_attr_, PTHREAD_MUTEX_ERRORCHECK );
+  pthread_mutex_init( &mutex_critical_section_, &mutex_attr_ );
+#endif // defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
 }
 
 
+#if !defined(MRBC_NO_TIMER)
 //================================================================
 /*!@brief
   enable interrupt
@@ -101,4 +106,4 @@ void hal_disable_irq(void)
 {
   sigprocmask(SIG_BLOCK, &sigset_, &sigset2_);
 }
-#endif /* if !defined(MRBC_NO_TIMER) */
+#endif // !defined(MRBC_NO_TIMER)
