@@ -64,21 +64,26 @@ void mrbc_cleanup_symbol(void)
  */
 static int search_index( uint16_t hash, const char *str )
 {
+  int ret = -1;
+
+  hal_lock();
+
 #ifdef MRBC_SYMBOL_SEARCH_LINER
   int i;
   for( i = 0; i < sym_index_pos; i++ ) {
     if( sym_index[i].hash == hash && strcmp(str, sym_index[i].cstr) == 0 ) {
-      return i;
+      ret = i;
+      goto DONE;
     }
   }
-  return -1;
 #endif
 
 #ifdef MRBC_SYMBOL_SEARCH_BTREE
   int i = 0;
   do {
     if( sym_index[i].hash == hash && strcmp(str, sym_index[i].cstr) == 0 ) {
-      return i;
+      ret = i;
+      goto DONE;
     }
     if( hash < sym_index[i].hash ) {
       i = sym_index[i].left;
@@ -86,8 +91,11 @@ static int search_index( uint16_t hash, const char *str )
       i = sym_index[i].right;
     }
   } while( i != 0 );
-  return -1;
 #endif
+
+ DONE:
+  hal_unlock();
+  return ret;
 }
 
 
@@ -101,6 +109,8 @@ static int add_index( uint16_t hash, const char *str )
     console_printf( "Overflow %s for '%s'\n", "MAX_SYMBOLS_COUNT", str );
     return -1;
   }
+
+  hal_lock();
 
   int sym_id = sym_index_pos++;
 
@@ -129,6 +139,8 @@ static int add_index( uint16_t hash, const char *str )
     }
   }
 #endif
+
+  hal_unlock();
   return sym_id;
 }
 
@@ -209,7 +221,11 @@ const char * symid_to_str(mrbc_sym sym_id)
   if( sym_id < 0 ) return NULL;
   if( sym_id >= sym_index_pos ) return NULL;
 
-  return sym_index[sym_id].cstr;
+  hal_lock();
+  const char *ret = sym_index[sym_id].cstr;
+  hal_unlock();
+
+  return ret;
 }
 
 
@@ -221,6 +237,7 @@ static void c_all_symbols(struct VM *vm, mrbc_value v[], int argc)
 {
   mrbc_value ret = mrbc_array_new(vm, sym_index_pos);
 
+  // (note) Not applied hal_lock because little effect.
   int i;
   for( i = 0; i < sym_index_pos; i++ ) {
     mrbc_value sym1 = {.tt = MRBC_TT_SYMBOL};

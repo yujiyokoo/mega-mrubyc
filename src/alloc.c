@@ -609,7 +609,7 @@ void * mrbc_raw_realloc(void *ptr, unsigned int size)
 
  DONE:
   hal_unlock();
-  return (uint8_t *)ptr;
+  return (void *)ptr;
 }
 
 
