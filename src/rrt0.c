@@ -376,9 +376,9 @@ void mrbc_tick(void)
 */
 void mrbc_init(uint8_t *ptr, unsigned int size )
 {
+  hal_init();
   mrbc_init_alloc(ptr, size);
   init_static();
-  hal_init();
 
 
   // TODO 関数呼び出しが、c_XXX => mrbc_XXX の daisy chain になっている。
