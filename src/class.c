@@ -891,7 +891,7 @@ static void c_object_raise(struct VM *vm, mrbc_value v[], int argc)
 {
   // set Runtime Error
   vm->exc = mrbc_class_runtimeerror;
-  
+
   // raise
   if( argc == 0 ){    // 1. raise
     // for test
@@ -953,6 +953,13 @@ static void c_object_to_s(struct VM *vm, mrbc_value v[], int argc)
 
 
 #ifdef MRBC_DEBUG
+static void c_object_object_id(struct VM *vm, mrbc_value v[], int argc)
+{
+  // tiny implementation.
+  SET_INT_RETURN( GET_INT_ARG(0) );
+}
+
+
 static void c_object_instance_methods(struct VM *vm, mrbc_value v[], int argc)
 {
   // TODO: check argument.
@@ -1031,6 +1038,7 @@ static void mrbc_init_class_object(struct VM *vm)
 #endif
 
 #ifdef MRBC_DEBUG
+  mrbc_define_method(vm, mrbc_class_object, "object_id", c_object_object_id);
   mrbc_define_method(vm, mrbc_class_object, "instance_methods", c_object_instance_methods);
   mrbc_define_method(vm, mrbc_class_object, "instance_variables", c_object_instance_variables);
 #endif
@@ -1314,6 +1322,6 @@ void mrbc_init_class(void)
   mrbc_init_class_hash(0);
 
   mrbc_init_class_exception(0);
-  
+
   mrbc_run_mrblib(mrblib_bytecode);
 }

@@ -25,7 +25,7 @@ static mrbc_kv_handle handle_global;	//!< for global variables.
 //================================================================
 /*! initialize const and global table with default value.
 */
-void  mrbc_init_global(void)
+void mrbc_init_global(void)
 {
   mrbc_kv_init_handle( 0, &handle_const, 15 );
   mrbc_kv_init_handle( 0, &handle_global, 0 );

@@ -243,7 +243,7 @@ static mrbc_irep * load_irep_0(struct VM *vm, const uint8_t **pos)
 */
 static int load_irep(struct VM *vm, const uint8_t **pos)
 {
-  const uint8_t *p = *pos + 4;			// 4 = skip "RITE"
+  const uint8_t *p = *pos + 4;			// 4 = skip "IREP"
   int section_size = bin_to_uint32(p);
   p += 4;
   if( memcmp(p, "0002", 4) != 0 ) {		// rite version
