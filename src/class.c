@@ -3,8 +3,8 @@
   mruby/c Object, Proc, Nil, False and True class and class specific functions.
 
   <pre>
-  Copyright (C) 2015-2018 Kyushu Institute of Technology.
-  Copyright (C) 2015-2018 Shimane IT Open-Innovation Center.
+  Copyright (C) 2015-2020 Kyushu Institute of Technology.
+  Copyright (C) 2015-2020 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
 
@@ -242,9 +242,13 @@ mrbc_proc *find_method(struct VM *vm, const mrbc_object *recv, mrbc_sym sym_id)
   @param  vm		pointer to vm.
   @param  name		class name.
   @param  super		super class.
+  @return mrbc_class *	pointer to created class or already exist class.
 */
 mrbc_class * mrbc_define_class(struct VM *vm, const char *name, mrbc_class *super)
 {
+  hal_lock();
+
+  mrbc_class *cls;
   if( super == NULL ) super = mrbc_class_object;  // set default to Object.
 
   mrbc_sym sym_id = str_to_symid(name);
@@ -252,8 +256,8 @@ mrbc_class * mrbc_define_class(struct VM *vm, const char *name, mrbc_class *supe
 
   // create a new class?
   if( obj == NULL ) {
-    mrbc_class *cls = mrbc_alloc( 0, sizeof(mrbc_class) );
-    if( !cls ) return cls;	// ENOMEM
+    cls = mrbc_alloc( 0, sizeof(mrbc_class) );
+    if( !cls ) goto DONE;	// ENOMEM
 
     cls->sym_id = sym_id;
 #ifdef MRBC_DEBUG
@@ -264,17 +268,23 @@ mrbc_class * mrbc_define_class(struct VM *vm, const char *name, mrbc_class *supe
 
     // register to global constant.
     mrbc_set_const( sym_id, &(mrb_value){.tt = MRBC_TT_CLASS, .cls = cls} );
-    return cls;
+    goto DONE;
   }
 
   // already?
   if( obj->tt == MRBC_TT_CLASS ) {
-    return obj->cls;
+    cls = obj->cls;
+    goto DONE;
   }
 
   // error.
   // raise TypeError.
   assert( !"TypeError" );
+
+
+ DONE:
+  hal_unlock();
+  return cls;
 }
 
 
@@ -283,15 +293,20 @@ mrbc_class * mrbc_define_class(struct VM *vm, const char *name, mrbc_class *supe
 /*! get class by name
 
   @param  name		class name.
-  @return		pointer to class object.
+  @return		pointer to class or NULL.
 */
 mrbc_class * mrbc_get_class_by_name( const char *name )
 {
+  mrbc_class *cls = NULL;
+  hal_lock();
+
   mrbc_sym sym_id = str_to_symid(name);
   mrbc_object *obj = mrbc_get_const( sym_id );
 
-  if( obj == NULL ) return NULL;
-  return (obj->tt == MRBC_TT_CLASS) ? obj->cls : NULL;
+  if( obj != NULL && obj->tt == MRBC_TT_CLASS ) cls = obj->cls;
+
+  hal_unlock();
+  return cls;
 }
 
 

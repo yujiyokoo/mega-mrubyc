@@ -76,12 +76,12 @@ void hal_init(void)
   setitimer(ITIMER_REAL, &tval, 0);
 #endif // !defined(MRBC_NO_TIMER)
 
-#if defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
+#if defined(MRBC_ENABLE_HAL_LOCK) || defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
   // mutex準備
   pthread_mutexattr_init( &mutex_attr_ );
-  pthread_mutexattr_settype( &mutex_attr_, PTHREAD_MUTEX_ERRORCHECK );
+  pthread_mutexattr_settype( &mutex_attr_, PTHREAD_MUTEX_RECURSIVE );
   pthread_mutex_init( &mutex_critical_section_, &mutex_attr_ );
-#endif // defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
+#endif // defined(MRBC_ENABLE_HAL_LOCK) || defined(MRBC_ENABLE_HAL_LOCK_DEBUG)
 }
 
 

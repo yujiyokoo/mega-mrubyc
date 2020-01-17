@@ -443,6 +443,9 @@ static inline int op_getgv( mrbc_vm *vm, mrbc_value *regs )
   mrbc_sym sym_id = str_to_symid(sym_name);
 
   mrbc_release(&regs[a]);
+
+  hal_lock();
+
   mrbc_value *v = mrbc_get_global(sym_id);
   if( v == NULL ) {
     regs[a] = mrbc_nil_value();
@@ -451,6 +454,7 @@ static inline int op_getgv( mrbc_vm *vm, mrbc_value *regs )
     regs[a] = *v;
   }
 
+  hal_unlock();
   return 0;
 }
 
@@ -473,7 +477,9 @@ static inline int op_setgv( mrbc_vm *vm, mrbc_value *regs )
   const char *sym_name = mrbc_get_irep_symbol(vm->pc_irep->ptr_to_sym, b);
   mrbc_sym sym_id = str_to_symid(sym_name);
   mrbc_dup(&regs[a]);
+  hal_lock();
   mrbc_set_global(sym_id, &regs[a]);
+  hal_unlock();
 
   return 0;
 }
@@ -550,15 +556,19 @@ static inline int op_getconst( mrbc_vm *vm, mrbc_value *regs )
   mrbc_sym sym_id = str_to_symid(sym_name);
 
   mrbc_release(&regs[a]);
+
+  hal_lock();
+
   mrbc_value *v = mrbc_get_const(sym_id);
-  if( v == NULL ) {             // raise?
+  if( v != NULL ) {
+    mrbc_dup(v);
+    regs[a] = *v;
+  } else {
+    // raise?
     console_printf( "NameError: uninitialized constant %s\n", sym_name );
-    return 0;
   }
 
-  mrbc_dup(v);
-  regs[a] = *v;
-
+  hal_unlock();
   return 0;
 }
 
@@ -602,7 +612,9 @@ static inline int op_setconst( mrbc_vm *vm, mrbc_value *regs )
   }
 
   mrbc_dup(&regs[a]);
+  hal_lock();
   mrbc_set_const(sym_id, &regs[a]);
+  hal_unlock();
 
   return 0;
 }
@@ -640,18 +652,21 @@ static inline int op_getmcnst( mrbc_vm *vm, mrbc_value *regs )
   buf[8] = 0;
 
   mrbc_sym sym_id = str_to_symid(buf);
-
   mrbc_release(&regs[a]);
+
+  hal_lock();
+
   mrbc_value *v = mrbc_get_const(sym_id);
-  if( v == NULL ) {             // raise?
+  if( v != NULL ) {
+    mrbc_dup(v);
+    regs[a] = *v;
+  } else {
+    // raise?
     console_printf( "NameError: uninitialized constant %s::%s\n",
 		    symid_to_str( cls->sym_id ), sym_name );
-    return 0;
   }
 
-  mrbc_dup(v);
-  regs[a] = *v;
-
+  hal_unlock();
   return 0;
 }
 
