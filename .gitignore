@@ -1,5 +1,6 @@
 # Executables
 sample_scheduler
+sample_no_scheduler
 sample_include
 sample_concurrent
 sample_myclass

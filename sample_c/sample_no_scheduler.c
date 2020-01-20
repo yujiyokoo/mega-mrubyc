@@ -40,11 +40,26 @@ uint8_t * load_mrb_file(const char *filename)
 
 void mrubyc(uint8_t *mrbbuf)
 {
-  mrbc_init(memory_pool, MEMORY_SIZE);
+  hal_init();
+  mrbc_init_alloc(memory_pool, MEMORY_SIZE);
+  init_static();
 
-  mrbc_create_task(mrbbuf, NULL);
+  mrbc_vm *vm = mrbc_vm_open(NULL);
+  if( vm == NULL ) {
+    fprintf(stderr, "Error: Can't assign VM-ID.\n");
+    return;
+  }
 
-  mrbc_run();
+  if( mrbc_load_mrb(vm, mrbbuf) != 0 ) {
+    fprintf(stderr, "Error: Illegal bytecode.\n");
+    mrbc_vm_close( vm );
+    return;
+  }
+
+  mrbc_vm_begin( vm );
+  mrbc_vm_run( vm );
+  mrbc_vm_end( vm );
+  mrbc_vm_close( vm );
 }
 
 
