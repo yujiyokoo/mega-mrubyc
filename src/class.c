@@ -90,7 +90,7 @@ mrbc_proc *mrbc_rproc_alloc(struct VM *vm, const char *name)
 */
 mrbc_value mrbc_instance_new(struct VM *vm, mrbc_class *cls, int size)
 {
-  mrbc_value v = {.tt = MRBC_TT_OBJECT};
+  mrbc_value v = {.tt = MRBC_TT_OBJECT, .fs = 0};
   v.instance = (mrbc_instance *)mrbc_alloc(vm, sizeof(mrbc_instance) + size);
   if( v.instance == NULL ) return v;	// ENOMEM
 
@@ -248,7 +248,7 @@ mrbc_class * mrbc_define_class(struct VM *vm, const char *name, mrbc_class *supe
 {
   hal_lock();
 
-  mrbc_class *cls;
+  mrbc_class *cls = NULL;
   if( super == NULL ) super = mrbc_class_object;  // set default to Object.
 
   mrbc_sym sym_id = str_to_symid(name);

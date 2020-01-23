@@ -13,6 +13,7 @@
 */
 
 #include "vm_config.h"
+#include "hal/hal.h"
 #include <string.h>
 #include <assert.h>
 
@@ -120,21 +121,25 @@ int mrbc_compare(const mrbc_value *v1, const mrbc_value *v2)
 void mrbc_dup(mrbc_value *v)
 {
   switch( v->tt ){
+  default:
+    return;	// Nothing
+
   case MRBC_TT_OBJECT:
   case MRBC_TT_PROC:
   case MRBC_TT_ARRAY:
   case MRBC_TT_STRING:
   case MRBC_TT_RANGE:
   case MRBC_TT_HASH:
-    assert( v->instance->ref_count > 0 );
-    assert( v->instance->ref_count != 0xff );	// check max value.
-    v->instance->ref_count++;
-    break;
-
-  default:
-    // Nothing
     break;
   }
+
+  if( v->fs ) hal_lock();
+  assert( v->instance->ref_count > 0 );
+  assert( v->instance->ref_count < 0xf0 );	// check max value.
+  v->instance->ref_count++;
+  assert( v->instance->ref_count > 0 );
+  assert( v->instance->ref_count < 0xf0 );	// check max value.
+  if( v->fs ) hal_unlock();
 }
 
 
@@ -159,24 +164,26 @@ void mrbc_release(mrbc_value *v)
 */
 void mrbc_dec_ref_counter(mrbc_value *v)
 {
-  switch( v->tt ){
+  switch( v->tt ) {
+  default:
+    return;	// Nothing
+
   case MRBC_TT_OBJECT:
   case MRBC_TT_PROC:
   case MRBC_TT_ARRAY:
   case MRBC_TT_STRING:
   case MRBC_TT_RANGE:
   case MRBC_TT_HASH:
-    assert( v->instance->ref_count != 0 );
-    v->instance->ref_count--;
     break;
-
-  default:
-    // Nothing
-    return;
   }
 
+  if( v->fs ) hal_lock();
+  assert( v->instance->ref_count != 0 );
+  v->instance->ref_count--;
+  assert( v->instance->ref_count < 0xf0 );	// check max value.
+
   // release memory?
-  if( v->instance->ref_count != 0 ) return;
+  if( v->instance->ref_count != 0 ) goto DONE;
 
   switch( v->tt ) {
   case MRBC_TT_OBJECT:	mrbc_instance_delete(v);	break;
@@ -189,9 +196,11 @@ void mrbc_dec_ref_counter(mrbc_value *v)
   case MRBC_TT_HASH:	mrbc_hash_delete(v);		break;
 
   default:
-    // Nothing
-    break;
+    break;	// Nothing
   }
+
+ DONE:
+  if( v->fs ) hal_unlock();
 }
 
 

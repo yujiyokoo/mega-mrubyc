@@ -47,6 +47,7 @@ int mrbc_set_const( mrbc_sym sym_id, mrbc_value *v )
     mrbc_release( already );
   }
 
+  v->fs = 1;
   return mrbc_kv_set( &handle_const, sym_id, v );
 }
 
@@ -72,6 +73,7 @@ mrbc_value * mrbc_get_const( mrbc_sym sym_id )
 */
 int mrbc_set_global( mrbc_sym sym_id, mrbc_value *v )
 {
+  v->fs = 1;
   return mrbc_kv_set( &handle_global, sym_id, v );
 }
 
@@ -117,6 +119,7 @@ void mrbc_global_clear_vm_id(void)
 */
 void mrbc_global_debug_dump(void)
 {
+  hal_lock();
   console_print("<< Const table dump. >>\n(s_id:identifier = value)\n");
   mrbc_kv_iterator ite = mrbc_kv_iterator_new( &handle_const );
   while( mrbc_kv_i_has_next( &ite ) ) {
@@ -132,10 +135,12 @@ void mrbc_global_debug_dump(void)
   while( mrbc_kv_i_has_next( &ite ) ) {
     mrbc_kv *kv = mrbc_kv_i_next( &ite );
 
-    console_printf(" %04x:%s = ", kv->sym_id, symid_to_str(kv->sym_id));
+    console_printf(" %04x:%s:%08x = ", kv->sym_id, symid_to_str(kv->sym_id),
+		   kv->value.string);
     mrbc_p_sub( &kv->value );
     console_printf(" .tt=%d\n", kv->value.tt);
-  }
+      }
+  hal_unlock();
 }
 
 #endif

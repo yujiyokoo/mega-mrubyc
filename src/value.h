@@ -110,6 +110,7 @@ typedef enum {
 */
 struct RObject {
   mrbc_vtype tt : 8;
+  uint8_t fs : 8;
   union {
     mrbc_int i;			// MRBC_TT_FIXNUM, SYMBOL
 #if MRBC_USE_FLOAT

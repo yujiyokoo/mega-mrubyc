@@ -445,7 +445,6 @@ static inline int op_getgv( mrbc_vm *vm, mrbc_value *regs )
   mrbc_release(&regs[a]);
 
   hal_lock();
-
   mrbc_value *v = mrbc_get_global(sym_id);
   if( v == NULL ) {
     regs[a] = mrbc_nil_value();
@@ -453,8 +452,8 @@ static inline int op_getgv( mrbc_vm *vm, mrbc_value *regs )
     mrbc_dup(v);
     regs[a] = *v;
   }
-
   hal_unlock();
+
   return 0;
 }
 
@@ -477,6 +476,7 @@ static inline int op_setgv( mrbc_vm *vm, mrbc_value *regs )
   const char *sym_name = mrbc_get_irep_symbol(vm->pc_irep->ptr_to_sym, b);
   mrbc_sym sym_id = str_to_symid(sym_name);
   mrbc_dup(&regs[a]);
+
   hal_lock();
   mrbc_set_global(sym_id, &regs[a]);
   hal_unlock();
@@ -558,17 +558,16 @@ static inline int op_getconst( mrbc_vm *vm, mrbc_value *regs )
   mrbc_release(&regs[a]);
 
   hal_lock();
-
   mrbc_value *v = mrbc_get_const(sym_id);
-  if( v != NULL ) {
-    mrbc_dup(v);
-    regs[a] = *v;
-  } else {
+  if( v == NULL ) {
     // raise?
     console_printf( "NameError: uninitialized constant %s\n", sym_name );
+  } else {
+    mrbc_dup(v);
+    regs[a] = *v;
   }
-
   hal_unlock();
+
   return 0;
 }
 
@@ -612,6 +611,7 @@ static inline int op_setconst( mrbc_vm *vm, mrbc_value *regs )
   }
 
   mrbc_dup(&regs[a]);
+
   hal_lock();
   mrbc_set_const(sym_id, &regs[a]);
   hal_unlock();
@@ -655,18 +655,17 @@ static inline int op_getmcnst( mrbc_vm *vm, mrbc_value *regs )
   mrbc_release(&regs[a]);
 
   hal_lock();
-
   mrbc_value *v = mrbc_get_const(sym_id);
-  if( v != NULL ) {
-    mrbc_dup(v);
-    regs[a] = *v;
-  } else {
+  if( v == NULL ) {
     // raise?
     console_printf( "NameError: uninitialized constant %s::%s\n",
 		    symid_to_str( cls->sym_id ), sym_name );
+  } else {
+    mrbc_dup(v);
+    regs[a] = *v;
   }
-
   hal_unlock();
+
   return 0;
 }
 
@@ -2691,9 +2690,8 @@ void mrbc_vm_begin( struct VM *vm )
 
   // set self to reg[0]
   // create instance of Object
-  mrbc_value v;
-  v.tt = MRBC_TT_OBJECT;
-  v.instance = (mrbc_instance *)mrbc_alloc(vm, sizeof(mrbc_instance));
+  mrbc_value v = {.tt = MRBC_TT_OBJECT, .fs = 0,
+	.instance = (mrbc_instance *)mrbc_alloc(vm, sizeof(mrbc_instance))};
   if( v.instance == NULL ) return;	// ENOMEM
 
   if( mrbc_kv_init_handle(vm, &v.instance->ivar, 0) != 0 ) {
