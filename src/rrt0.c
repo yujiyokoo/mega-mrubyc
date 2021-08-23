@@ -552,7 +552,7 @@ int mrbc_run(void)
       tcb->state = TASKSTATE_DORMANT;
       q_insert_task(tcb);
       hal_enable_irq();
-      mrbc_vm_end(&tcb->vm);
+      if (tcb->vm.flag_permanence == 0) mrbc_vm_end(&tcb->vm);
 
 #if MRBC_SCHEDULER_EXIT
       if( q_ready_ == NULL && q_waiting_ == NULL &&
