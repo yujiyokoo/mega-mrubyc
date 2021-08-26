@@ -1361,7 +1361,6 @@ static inline int op_return( mrbc_vm *vm, mrbc_value *regs )
   FETCH_B();
 
   if (vm->flag_permanence == 1 && vm->callinfo_tail == NULL) {
-    regs[0] = regs[a];
     return -1;
   }
 
