@@ -17,6 +17,15 @@ class SymbolTest < MrubycTestCase
     assert_equal true, s != :symbol2
   end
 
+  description "<=> comparison"
+  def compare_case
+    assert (:a <=> :b) < 0
+    assert (:c <=> :b) > 0
+    assert (:string <=> :stringAA) < 0
+    assert (:string <=> :string) == 0
+    assert (:stringAA <=> :string) > 0
+  end
+
   description "to_sym"
   def to_sym_case
     s = "abc"
