@@ -26,6 +26,7 @@
 #include "c_range.h"
 #include "c_array.h"
 #include "c_hash.h"
+#include "symbol.h"
 
 
 /***** Constant values ******************************************************/
@@ -74,6 +75,10 @@ int mrbc_compare(const mrbc_value *v1, const mrbc_value *v2)
   mrbc_float d1, d2;
 #endif
 
+  // to compare Symbols
+  const char *str1, *str2;
+  int diff, len, res;
+
   // if TT_XXX is different
   if( mrbc_type(*v1) != mrbc_type(*v2) ) {
 #if MRBC_USE_FLOAT
@@ -106,8 +111,16 @@ int mrbc_compare(const mrbc_value *v1, const mrbc_value *v2)
     return 0;
 
   case MRBC_TT_INTEGER:
-  case MRBC_TT_SYMBOL:
     return mrbc_integer(*v1) - mrbc_integer(*v2);
+
+  case MRBC_TT_SYMBOL:
+    str1 = mrbc_symid_to_str(mrbc_symbol(*v1));
+    str2 = mrbc_symid_to_str(mrbc_symbol(*v2));
+    diff = strlen(str1) - strlen(str2);
+    len = diff < 0 ? strlen(str1) : strlen(str2);
+    res = memcmp(str1, str2, len);
+    if( res != 0 ) return res;
+    return diff;
 
 #if MRBC_USE_FLOAT
   case MRBC_TT_FLOAT:
