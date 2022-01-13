@@ -187,8 +187,8 @@ typedef struct FREE_BLOCK {
 #define IS_PREV_FREE(p)		(!IS_PREV_USED(p))
 
 #if defined(MRBC_ALLOC_VMID)
-#define SET_VM_ID(p,id)	(((USED_BLOCK *)((uint8_t *)(p) - sizeof(USED_BLOCK)))->vm_id = (id))
-#define GET_VM_ID(p)	(((USED_BLOCK *)((uint8_t *)(p) - sizeof(USED_BLOCK)))->vm_id)
+#define SET_VM_ID(p,id)	(((USED_BLOCK *)(p))->vm_id = (id))
+#define GET_VM_ID(p)	(((USED_BLOCK *)(p))->vm_id)
 
 #else
 #define SET_VM_ID(p,id)	((void)0)
@@ -327,9 +327,7 @@ static void add_free_block(MEMORY_POOL *pool, FREE_BLOCK *target)
   pool->free_blocks[index] = target;
 
 #ifdef MRBC_DEBUG
-#if defined(MRBC_ALLOC_VMID)
-  target->vm_id = -1;
-#endif
+  SET_VM_ID( target, 0xff );
   memset( (uint8_t *)target + sizeof(FREE_BLOCK) - sizeof(FREE_BLOCK *), 0xff,
           BLOCK_SIZE(target) - sizeof(FREE_BLOCK) );
 #endif
@@ -429,13 +427,14 @@ void mrbc_init_alloc(void *ptr, unsigned int size)
   // initialize memory pool
   //  large free block + zero size used block (sentinel).
   MRBC_ALLOC_MEMSIZE_T sentinel_size = sizeof(USED_BLOCK);
-  sentinel_size += (-sentinel_size & 3);
+  sentinel_size += (-sentinel_size & 0x03);
   MRBC_ALLOC_MEMSIZE_T free_size = size - sizeof(MEMORY_POOL) - sentinel_size;
   FREE_BLOCK *free_block = BLOCK_TOP(memory_pool);
   USED_BLOCK *used_block = (USED_BLOCK *)((uint8_t *)free_block + free_size);
 
   free_block->size = free_size | 0x02;		// flag prev=1, used=0
   used_block->size = sentinel_size | 0x01;	// flag prev=0, used=1
+  SET_VM_ID( used_block, 0xff );
 
   add_free_block( memory_pool, free_block );
 }
@@ -559,9 +558,7 @@ void * mrbc_raw_alloc(unsigned int size)
   }
 
   SET_USED_BLOCK(target);
-#if defined(MRBC_ALLOC_VMID)
-  target->vm_id = 0;
-#endif
+  SET_VM_ID( target, 0 );
 
 #ifdef MRBC_DEBUG
   memset( (uint8_t *)target + sizeof(USED_BLOCK), 0xaa,
@@ -613,6 +610,7 @@ void * mrbc_raw_alloc_no_free(unsigned int size)
     prev->size -= alloc_size;		// w/ flags.
     add_free_block( pool, prev );
   }
+  SET_VM_ID( tail, 0xff );
 
   return (uint8_t *)tail + sizeof(USED_BLOCK);
 
@@ -718,7 +716,7 @@ void * mrbc_raw_realloc(void *ptr, unsigned int size)
     if( new_ptr == NULL ) return NULL;  // ENOMEM
 
     memcpy(new_ptr, ptr, BLOCK_SIZE(target) - sizeof(USED_BLOCK));
-    SET_VM_ID(new_ptr, target->vm_id);
+    mrbc_set_vm_id(new_ptr, target->vm_id);
 
     mrbc_raw_free(ptr);
 
@@ -741,7 +739,7 @@ void * mrbc_alloc(const struct VM *vm, unsigned int size)
   void *ptr = mrbc_raw_alloc(size);
   if( ptr == NULL ) return NULL;	// ENOMEM
 
-  if( vm ) SET_VM_ID(ptr, vm->vm_id);
+  if( vm ) mrbc_set_vm_id(ptr, vm->vm_id);
 
   return ptr;
 }
@@ -761,6 +759,8 @@ void mrbc_free_all(const struct VM *vm)
 
   while( target < (USED_BLOCK *)BLOCK_END(pool) ) {
     next = PHYS_NEXT(target);
+    if( IS_FREE_BLOCK(next) ) next = PHYS_NEXT(next);
+
     if( IS_USED_BLOCK(target) && (target->vm_id == vm_id) ) {
       mrbc_raw_free( (uint8_t *)target + sizeof(USED_BLOCK) );
     }
@@ -777,7 +777,7 @@ void mrbc_free_all(const struct VM *vm)
 */
 void mrbc_set_vm_id(void *ptr, int vm_id)
 {
-  SET_VM_ID(ptr, vm_id);
+  SET_VM_ID( (uint8_t *)ptr - sizeof(USED_BLOCK), vm_id );
 }
 
 
@@ -789,7 +789,7 @@ void mrbc_set_vm_id(void *ptr, int vm_id)
 */
 int mrbc_get_vm_id(void *ptr)
 {
-  return GET_VM_ID(ptr);
+  return GET_VM_ID( (uint8_t *)ptr - sizeof(USED_BLOCK) );
 }
 #endif	// defined(MRBC_ALLOC_VMID)
 
@@ -837,73 +837,74 @@ void mrbc_alloc_print_memory_pool( void )
 {
   int i;
   MEMORY_POOL *pool = memory_pool;
+  const int DUMP_BYTES = 32;
 
-  console_printf("== MEMORY POOL HEADER DUMP ==\n");
-  console_printf(" Address: %p - %p - %p  ", pool,
-		 BLOCK_TOP(pool), BLOCK_END(pool));
-  console_printf(" Size Total: %d User: %d\n",
-		 pool->size, pool->size - sizeof(MEMORY_POOL));
-  console_printf(" sizeof MEMORY_POOL: %d(%04x), USED_BLOCK: %d(%02x), FREE_BLOCK: %d(%02x)\n",
-		 sizeof(MEMORY_POOL), sizeof(MEMORY_POOL),
-		 sizeof(USED_BLOCK), sizeof(USED_BLOCK),
-		 sizeof(FREE_BLOCK), sizeof(FREE_BLOCK) );
+  mrbc_printf("== MEMORY POOL HEADER DUMP ==\n");
+  mrbc_printf(" Address: %p - %p - %p  ", pool,
+		BLOCK_TOP(pool), BLOCK_END(pool));
+  mrbc_printf(" Size Total: %d User: %d\n",
+		pool->size, pool->size - sizeof(MEMORY_POOL));
+  mrbc_printf(" sizeof MEMORY_POOL: %d(%04x), USED_BLOCK: %d(%02x), FREE_BLOCK: %d(%02x)\n",
+		sizeof(MEMORY_POOL), sizeof(MEMORY_POOL),
+		sizeof(USED_BLOCK), sizeof(USED_BLOCK),
+		sizeof(FREE_BLOCK), sizeof(FREE_BLOCK) );
 
-  console_printf(" FLI/SLI bitmap and free_blocks table.\n");
-  console_printf("    FLI :S[0123 4567] -- free_blocks ");
-  for( i = 0; i < 64; i++ ) { console_printf("-"); }
-  console_printf("\n");
+  mrbc_printf(" FLI/SLI bitmap and free_blocks table.\n");
+  mrbc_printf("    FLI :S[0123 4567] -- free_blocks ");
+  for( i = 0; i < 64; i++ ) { mrbc_printf("-"); }
+  mrbc_printf("\n");
   for( i = 0; i < sizeof(pool->free_sli_bitmap); i++ ) {
-    console_printf(" [%2d] %d :  ", i, !!((pool->free_fli_bitmap << i) & MSB_BIT1_FLI));
+    mrbc_printf(" [%2d] %d :  ", i, !!((pool->free_fli_bitmap << i) & MSB_BIT1_FLI));
     int j;
     for( j = 0; j < 8; j++ ) {
-      console_printf("%d", !!((pool->free_sli_bitmap[i] << j) & MSB_BIT1_SLI));
-      if( (j % 4) == 3 ) console_printf(" ");
+      mrbc_printf("%d", !!((pool->free_sli_bitmap[i] << j) & MSB_BIT1_SLI));
+      if( (j % 4) == 3 ) mrbc_printf(" ");
     }
 
     for( j = 0; j < 8; j++ ) {
       int idx = i * 8 + j;
       if( idx >= sizeof(pool->free_blocks) / sizeof(FREE_BLOCK *) ) break;
-      console_printf(" %p", pool->free_blocks[idx] );
+      mrbc_printf(" %p", pool->free_blocks[idx] );
     }
-    console_printf( "\n" );
+    mrbc_printf( "\n" );
   }
 
-  console_printf("== MEMORY BLOCK DUMP ==\n");
+  mrbc_printf("== MEMORY BLOCK DUMP ==\n");
   FREE_BLOCK *block = BLOCK_TOP(pool);
 
   while( block < (FREE_BLOCK *)BLOCK_END(pool) ) {
-    console_printf("%p", block );
+    mrbc_printf("%p", block );
 #if defined(MRBC_ALLOC_VMID)
-    console_printf(" id:%02x", block->vm_id );
+    mrbc_printf(" id:%02x", block->vm_id );
 #endif
-    console_printf(" size:%5d(%04x) use:%d prv:%d ",
-		   block->size & ~0x03, block->size & ~0x03,
-		   !!(block->size & 0x01), !!(block->size & 0x02) );
+    mrbc_printf(" size:%5d(%04x) use:%d prv:%d ",
+		block->size & ~0x03, block->size & ~0x03,
+		!!(block->size & 0x01), !!(block->size & 0x02) );
 
     if( IS_USED_BLOCK(block) ) {
-      int n = 32;
+      int n = DUMP_BYTES;
       if( n > (BLOCK_SIZE(block) - sizeof(USED_BLOCK)) ) {
 	n = BLOCK_SIZE(block) - sizeof(USED_BLOCK);
       }
       uint8_t *p = (uint8_t *)block + sizeof(USED_BLOCK);
-      for( i = 0; i < n; i++) console_printf(" %02x", *p++ );
-      for( ; i < 32; i++ ) console_printf("   ");
+      for( i = 0; i < n; i++) mrbc_printf(" %02x", *p++ );
+      for( ; i < DUMP_BYTES; i++ ) mrbc_printf("   ");
 
-      console_printf("  ");
+      mrbc_printf("  ");
       p = (uint8_t *)block + sizeof(USED_BLOCK);
       for( i = 0; i < n; i++) {
 	int ch = *p++;
-	console_printf("%c", (' ' <= ch && ch < 0x7f)? ch : '.');
+	mrbc_printf("%c", (' ' <= ch && ch < 0x7f)? ch : '.');
       }
     }
 
     if( IS_FREE_BLOCK(block) ) {
       unsigned int index = calc_index(BLOCK_SIZE(block));
-      console_printf(" fli:%d sli:%d pf:%p nf:%p",
-	     FLI(index), SLI(index), block->prev_free, block->next_free);
+      mrbc_printf(" fli:%d sli:%d pf:%p nf:%p",
+		FLI(index), SLI(index), block->prev_free, block->next_free);
     }
 
-    console_printf( "\n" );
+    mrbc_printf("\n");
     block = PHYS_NEXT(block);
   }
 }

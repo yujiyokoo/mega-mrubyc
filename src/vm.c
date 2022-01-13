@@ -12,7 +12,6 @@
 
   </pre>
 */
-
 #include "vm_config.h"
 #include <stddef.h>
 #include <string.h>
@@ -34,20 +33,6 @@
 #include "c_hash.h"
 
 
-/***** Macros ***************************************************************/
-/*
-   Top-level return immediately stops the program (task) and
-   doesn't handle its arguments
- */
-#define STOP_IF_TOPLEVEL()            \
-  do {                                \
-    if( vm->callinfo_tail == NULL ){  \
-      vm->flag_preemption = 1;        \
-      return -1;                      \
-    }                                 \
-  } while (0)
-
-
 static uint16_t free_vm_bitmap[MAX_VM_COUNT / 16 + 1];
 
 #define CALL_MAXARGS 255
@@ -58,7 +43,7 @@ static uint16_t free_vm_bitmap[MAX_VM_COUNT / 16 + 1];
 */
 static void not_supported(void)
 {
-  console_printf("Not supported!\n");
+  mrbc_printf("Not supported!\n");
 }
 
 
@@ -83,7 +68,7 @@ static int send_by_name( struct VM *vm, mrbc_sym sym_id, mrbc_value *regs, int a
 
   // if not OP_SENDB, blcok does not exist
   int bidx = a + c + 1;
-  if( !is_sendb ){
+  if( !is_sendb ) {
     mrbc_decref( &regs[bidx] );
     regs[bidx].tt = MRBC_TT_NIL;
   }
@@ -92,8 +77,8 @@ static int send_by_name( struct VM *vm, mrbc_sym sym_id, mrbc_value *regs, int a
   mrbc_method method;
 
   if( mrbc_find_method( &method, cls, sym_id ) == 0 ) {
-    console_printf("Undefined local variable or method '%s' for %s\n",
-		   symid_to_str(sym_id), symid_to_str( cls->sym_id ));
+    mrbc_printf("Undefined local variable or method '%s' for %s\n",
+		symid_to_str(sym_id), symid_to_str( cls->sym_id ));
     return 1;
   }
 
@@ -101,8 +86,6 @@ static int send_by_name( struct VM *vm, mrbc_sym sym_id, mrbc_value *regs, int a
   if( method.c_func ) {
     method.func(vm, regs + a, c);
     if( method.func == c_proc_call ) return 0;
-    //    if( vm->exc != NULL || vm->exc_pending != NULL ) return 0;
-    if( mrbc_israised(vm->exc) ) return 0;
 
     int release_reg = a+1;
     while( release_reg <= bidx ) {
@@ -118,11 +101,11 @@ static int send_by_name( struct VM *vm, mrbc_sym sym_id, mrbc_value *regs, int a
   callinfo->own_class = method.cls;
 
   // target irep
-  vm->pc_irep = method.irep;
-  vm->inst = method.irep->code;
+  vm->cur_irep = method.irep;
+  vm->inst = method.irep->inst;
 
   // new regs
-  vm->current_regs += a;
+  vm->cur_regs += a;
 
   return 0;
 }
@@ -138,6 +121,23 @@ void mrbc_cleanup_vm(void)
 
 
 //================================================================
+/*! get callee symbol id
+
+  @param  vm	Pointer to VM
+  @return	string
+*/
+mrbc_sym mrbc_get_callee_symid( struct VM *vm )
+{
+  uint8_t rb = vm->inst[-2];
+  /* NOTE
+     -2 is not always better value.
+     This value is OP_SEND operator's B register.
+  */
+  return mrbc_irep_symbol_id(vm->cur_irep, rb);
+}
+
+
+//================================================================
 /*! get callee name
 
   @param  vm	Pointer to VM
@@ -146,7 +146,7 @@ void mrbc_cleanup_vm(void)
 const char *mrbc_get_callee_name( struct VM *vm )
 {
   uint8_t rb = vm->inst[-2];
-  return mrbc_irep_symbol_cstr(vm->pc_irep, rb);
+  return mrbc_irep_symbol_cstr(vm->cur_irep, rb);
 }
 
 
@@ -158,14 +158,15 @@ mrbc_callinfo * mrbc_push_callinfo( struct VM *vm, mrbc_sym method_id, int reg_o
   mrbc_callinfo *callinfo = mrbc_alloc(vm, sizeof(mrbc_callinfo));
   if( !callinfo ) return callinfo;
 
-  callinfo->current_regs = vm->current_regs;
-  callinfo->pc_irep = vm->pc_irep;
+  callinfo->cur_irep = vm->cur_irep;
   callinfo->inst = vm->inst;
-  callinfo->reg_offset = reg_offset;
-  callinfo->method_id = method_id;
-  callinfo->n_args = n_args;
+  callinfo->cur_regs = vm->cur_regs;
   callinfo->target_class = vm->target_class;
   callinfo->own_class = 0;
+  callinfo->method_id = method_id;
+  callinfo->reg_offset = reg_offset;
+  callinfo->n_args = n_args;
+
   callinfo->prev = vm->callinfo_tail;
   vm->callinfo_tail = callinfo;
 
@@ -178,14 +179,22 @@ mrbc_callinfo * mrbc_push_callinfo( struct VM *vm, mrbc_sym method_id, int reg_o
 */
 void mrbc_pop_callinfo( struct VM *vm )
 {
-  mrbc_callinfo *callinfo = vm->callinfo_tail;
-  if( !callinfo ) return;
 
-  vm->callinfo_tail = callinfo->prev;
-  vm->current_regs = callinfo->current_regs;
-  vm->pc_irep = callinfo->pc_irep;
+  assert( vm->callinfo_tail );
+
+  // clear used register.
+  int i;
+  for( i = 1; i < vm->cur_irep->nregs; i++ ) {
+    mrbc_decref_empty( vm->cur_regs + i );
+  }
+
+  // copy callinfo to vm
+  mrbc_callinfo *callinfo = vm->callinfo_tail;
+  vm->cur_irep = callinfo->cur_irep;
   vm->inst = callinfo->inst;
+  vm->cur_regs = callinfo->cur_regs;
   vm->target_class = callinfo->target_class;
+  vm->callinfo_tail = callinfo->prev;
 
   mrbc_free(vm, callinfo);
 }
@@ -201,20 +210,29 @@ void mrbc_pop_callinfo( struct VM *vm )
 /*! Find exception, catch handler
 
 */
-static const mrbc_irep_catch_handler *catch_handler_find(mrbc_vm *vm, int filter)
+static const mrbc_irep_catch_handler *catch_handler_find(mrbc_vm *vm, const mrbc_callinfo *callinfo, int filter )
 {
-  const mrbc_irep *irep = vm->pc_irep;
-  const mrbc_irep_catch_handler *catch_table = (const mrbc_irep_catch_handler *)(irep->code + irep->ilen);
+  const mrbc_irep *irep;
+  uint32_t inst;
+
+  if( callinfo ) {
+    irep = callinfo->cur_irep;
+    inst = callinfo->inst - irep->inst;
+  } else {
+    irep = vm->cur_irep;
+    inst = vm->inst - irep->inst;
+  }
+
+  const mrbc_irep_catch_handler *catch_table =
+    (const mrbc_irep_catch_handler *)(irep->inst + irep->ilen);
   int cnt = irep->clen - 1;
 
   for( ; cnt >= 0 ; cnt-- ) {
     const mrbc_irep_catch_handler *handler = catch_table + cnt;
-
     // Catch type and range check
-    uint32_t pc = vm->inst - irep->code;
     if( (filter & (1 << handler->type)) &&
-	(bin_to_uint32(handler->begin) < pc) &&
-	(pc <= bin_to_uint32(handler->end)) ) {
+	(bin_to_uint32(handler->begin) < inst) &&
+	(inst <= bin_to_uint32(handler->end)) ) {
       return handler;
     }
   }
@@ -232,7 +250,7 @@ static mrbc_value * mrbc_get_self( struct VM *vm, mrbc_value *regs )
   if( self->tt == MRBC_TT_PROC ) {
     mrbc_callinfo *callinfo = regs[0].proc->callinfo_self;
     if( callinfo ) {
-      self = callinfo->current_regs + callinfo->reg_offset;
+      self = callinfo->cur_regs + callinfo->reg_offset;
     } else {
       self = &vm->regs[0];
     }
@@ -439,7 +457,7 @@ static inline int op_loadsym( mrbc_vm *vm, mrbc_value *regs )
   FETCH_BB();
 
   mrbc_decref(&regs[a]);
-  mrbc_set_symbol(&regs[a], mrbc_irep_symbol_id(vm->pc_irep, b));
+  mrbc_set_symbol(&regs[a], mrbc_irep_symbol_id(vm->cur_irep, b));
 
   return 0;
 }
@@ -459,7 +477,7 @@ static inline int op_loadsym16( mrbc_vm *vm, mrbc_value *regs )
   FETCH_BS();
 
   mrbc_decref(&regs[a]);
-  mrbc_set_symbol(&regs[a], mrbc_irep_symbol_id(vm->pc_irep, b));
+  mrbc_set_symbol(&regs[a], mrbc_irep_symbol_id(vm->cur_irep, b));
 
   return 0;
 }
@@ -562,7 +580,7 @@ static inline int op_getgv( mrbc_vm *vm, mrbc_value *regs )
   FETCH_BB();
 
   mrbc_decref(&regs[a]);
-  mrbc_value *v = mrbc_get_global( mrbc_irep_symbol_id(vm->pc_irep, b) );
+  mrbc_value *v = mrbc_get_global( mrbc_irep_symbol_id(vm->cur_irep, b) );
   if( v == NULL ) {
     mrbc_set_nil(&regs[a]);
   } else {
@@ -588,7 +606,7 @@ static inline int op_setgv( mrbc_vm *vm, mrbc_value *regs )
   FETCH_BB();
 
   mrbc_incref(&regs[a]);
-  mrbc_set_global( mrbc_irep_symbol_id(vm->pc_irep, b), &regs[a] );
+  mrbc_set_global( mrbc_irep_symbol_id(vm->cur_irep, b), &regs[a] );
 
   return 0;
 }
@@ -607,7 +625,7 @@ static inline int op_getiv( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  const char *sym_name = mrbc_irep_symbol_cstr(vm->pc_irep, b);
+  const char *sym_name = mrbc_irep_symbol_cstr(vm->cur_irep, b);
   mrbc_sym sym_id = str_to_symid(sym_name+1);   // skip '@'
   mrbc_value *self = mrbc_get_self( vm, regs );
 
@@ -631,7 +649,7 @@ static inline int op_setiv( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  const char *sym_name = mrbc_irep_symbol_cstr(vm->pc_irep, b);
+  const char *sym_name = mrbc_irep_symbol_cstr(vm->cur_irep, b);
   mrbc_sym sym_id = str_to_symid(sym_name+1);   // skip '@'
   mrbc_value *self = mrbc_get_self( vm, regs );
 
@@ -654,7 +672,7 @@ static inline int op_getconst( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  mrbc_sym sym_id = mrbc_irep_symbol_id(vm->pc_irep, b);
+  mrbc_sym sym_id = mrbc_irep_symbol_id(vm->cur_irep, b);
   mrbc_class *cls = NULL;
   mrbc_value *v;
 
@@ -667,8 +685,8 @@ static inline int op_getconst( mrbc_vm *vm, mrbc_value *regs )
 
   v = mrbc_get_const(sym_id);
   if( v == NULL ) {		// raise?
-    console_printf( "NameError: uninitialized constant %s\n",
-		    symid_to_str(sym_id) );
+    mrbc_printf("NameError: uninitialized constant %s\n",
+		symid_to_str(sym_id) );
     return 0;
   }
 
@@ -694,7 +712,7 @@ static inline int op_setconst( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  mrbc_sym sym_id = mrbc_irep_symbol_id(vm->pc_irep, b);
+  mrbc_sym sym_id = mrbc_irep_symbol_id(vm->cur_irep, b);
 
   mrbc_incref(&regs[a]);
   if( mrbc_type(regs[0]) == MRBC_TT_CLASS ) {
@@ -720,15 +738,15 @@ static inline int op_getmcnst( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  mrbc_sym sym_id = mrbc_irep_symbol_id(vm->pc_irep, b);
+  mrbc_sym sym_id = mrbc_irep_symbol_id(vm->cur_irep, b);
   mrbc_class *cls = regs[a].cls;
   mrbc_value *v;
 
   while( !(v = mrbc_get_class_const(cls, sym_id)) ) {
     cls = cls->super;
     if( !cls ) {	// raise?
-      console_printf( "NameError: uninitialized constant %s::%s\n",
-		symid_to_str( regs[a].cls->sym_id ), symid_to_str( sym_id ));
+      mrbc_printf("NameError: uninitialized constant %s::%s\n",
+		  symid_to_str( regs[a].cls->sym_id ), symid_to_str( sym_id ));
       return 0;
     }
   }
@@ -760,7 +778,7 @@ static inline int op_getupvar( mrbc_vm *vm, mrbc_value *regs )
   int i;
   for( i = 0; i < c; i++ ) {
     assert( callinfo );
-    mrbc_value *regs0 = callinfo->current_regs + callinfo->reg_offset;
+    mrbc_value *regs0 = callinfo->cur_regs + callinfo->reg_offset;
     assert( regs0->tt == MRBC_TT_PROC );
     callinfo = regs0->proc->callinfo;
   }
@@ -769,7 +787,7 @@ static inline int op_getupvar( mrbc_vm *vm, mrbc_value *regs )
   if( callinfo == 0 ) {
     p_val = vm->regs + b;
   } else {
-    p_val = callinfo->current_regs + callinfo->reg_offset + b;
+    p_val = callinfo->cur_regs + callinfo->reg_offset + b;
   }
   mrbc_incref( p_val );
 
@@ -799,7 +817,7 @@ static inline int op_setupvar( mrbc_vm *vm, mrbc_value *regs )
   int i;
   for( i = 0; i < c; i++ ) {
     assert( callinfo );
-    mrbc_value *regs0 = callinfo->current_regs + callinfo->reg_offset;
+    mrbc_value *regs0 = callinfo->cur_regs + callinfo->reg_offset;
     assert( regs0->tt == MRBC_TT_PROC );
     callinfo = regs0->proc->callinfo;
   }
@@ -808,7 +826,7 @@ static inline int op_setupvar( mrbc_vm *vm, mrbc_value *regs )
   if( callinfo == 0 ) {
     p_val = vm->regs + b;
   } else {
-    p_val = callinfo->current_regs + callinfo->reg_offset + b;
+    p_val = callinfo->cur_regs + callinfo->reg_offset + b;
   }
   mrbc_decref( p_val );
 
@@ -914,21 +932,27 @@ static inline int op_jmpuw( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_S();
 
-  // Check ensure
-  const mrbc_irep_catch_handler *handler = catch_handler_find(vm, MRBC_CATCH_FILTER_ENSURE);
-  if( handler ){
-    //    vm->catch_stack[ vm->catch_stack_idx++ ] = vm->inst + (int16_t)a;
-    vm->inst = vm->pc_irep->code + bin_to_uint32(handler->target);
-    vm->exc.tt = MRBC_TT_BREAK;
-    vm->exc.jmpuw = vm->inst + (int16_t)a;
-  } else {
-    vm->inst += (int16_t)a;
-    vm->exc = mrbc_nil_value();
-  }
+  // check catch handler (ensure)
+  const mrbc_irep_catch_handler *handler = catch_handler_find(vm, 0, MRBC_CATCH_FILTER_ENSURE);
+  if( !handler ) goto JUMP_TO_A_REG;
 
+  // check whether the jump point is inside or outside the catch handler.
+  uint32_t jump_point = vm->inst - vm->cur_irep->inst + (int16_t)a;
+  if( (bin_to_uint32(handler->begin) < jump_point) &&
+      (jump_point <= bin_to_uint32(handler->end)) ) goto JUMP_TO_A_REG;
+
+  // jump point is outside, thus jump to ensure.
+  assert( vm->exception.tt == MRBC_TT_NIL );
+  vm->exception.tt = MRBC_TT_JMPUW;
+  vm->exception.jmpuw = vm->inst + (int16_t)a;
+  vm->inst = vm->cur_irep->inst + bin_to_uint32(handler->target);
+  return 0;
+
+
+ JUMP_TO_A_REG:
+  vm->inst += (int16_t)a;
   return 0;
 }
-
 
 
 //================================================================
@@ -945,12 +969,8 @@ static inline int op_except( mrbc_vm *vm, mrbc_value *regs )
   FETCH_B();
 
   mrbc_decref( &regs[a] );
-  if( mrbc_israised(vm->exc) ){
-    regs[a] = vm->exc;
-    vm->exc = mrbc_nil_value();
-  } else {
-    regs[a] = mrbc_nil_value();
-  }
+  regs[a] = vm->exception;
+  mrbc_set_nil( &vm->exception );
 
   return 0;
 }
@@ -969,22 +989,11 @@ static inline int op_rescue( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  //assert( regs[a].tt == MRBC_TT_CLASS );
-  //assert( regs[b].tt == MRBC_TT_CLASS );
+  assert( regs[a].tt == MRBC_TT_EXCEPTION );
+  assert( regs[b].tt == MRBC_TT_CLASS );
 
-  mrbc_class *cls = regs[a].cls;
-  while( cls != NULL ){
-    if( regs[b].cls == cls ){
-      mrbc_decref( &regs[b] );
-      regs[b] = mrbc_true_value();
-      vm->exc = mrbc_nil_value();
-      return 0;
-    }
-    cls = cls->super;
-  }
-
-  mrbc_decref( &regs[b] );
-  regs[b] = mrbc_false_value();
+  int res = mrbc_obj_is_kind_of( &regs[a], regs[b].cls );
+  mrbc_set_bool( &regs[b], res );
 
   return 0;
 }
@@ -1003,17 +1012,45 @@ static inline int op_raiseif( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
 
-  //  console_printf("OP_RAISEIF tt:%d\n", regs[0].tt);
+  if( regs[a].tt == MRBC_TT_JMPUW ) {
+    const mrbc_irep_catch_handler *handler =
+      catch_handler_find(vm, 0, MRBC_CATCH_FILTER_ENSURE);
+    if( !handler ) {
+      vm->inst = regs[a].jmpuw;
+      return 0;
+    }
 
-  mrb_value *exc = &regs[a];
+    uint32_t jump_point = regs[a].jmpuw - vm->cur_irep->inst;
+    if( (bin_to_uint32(handler->begin) < jump_point) &&
+	(jump_point <= bin_to_uint32(handler->end)) ) {
+      vm->inst = regs[a].jmpuw;
+      return 0;
+    }
 
-  if( exc->tt == MRBC_TT_BREAK ){
-    vm->inst = exc->jmpuw;
-  } else {
     mrbc_incref( &regs[a] );
-    vm->exc = regs[a];
+    vm->exception = regs[a];
+    vm->inst = vm->cur_irep->inst + bin_to_uint32(handler->target);
+    return 0;
   }
 
+  if( regs[a].tt == MRBC_TT_RETBLK ) {
+    const mrbc_irep_catch_handler *handler =
+      catch_handler_find(vm, 0, MRBC_CATCH_FILTER_ENSURE);
+    mrbc_incref( &regs[a] );
+    vm->exception = regs[a];
+    if( handler ) {
+      vm->inst = vm->cur_irep->inst + bin_to_uint32(handler->target);
+    } else {
+      vm->inst = regs[a].jmpuw;
+    }
+    return 0;
+  }
+
+  assert( mrbc_type(regs[a]) == MRBC_TT_EXCEPTION ||
+	  mrbc_type(regs[a]) == MRBC_TT_NIL );
+  mrbc_incref( &regs[a] );
+  vm->exception = regs[a];
+  if( mrbc_israised(vm) ) vm->flag_preemption = 2;
   return 0;
 }
 
@@ -1031,7 +1068,7 @@ static inline int op_sendv( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  return send_by_name( vm, mrbc_irep_symbol_id(vm->pc_irep, b), regs, a, CALL_MAXARGS, 0 );
+  return send_by_name( vm, mrbc_irep_symbol_id(vm->cur_irep, b), regs, a, CALL_MAXARGS, 0 );
 }
 
 
@@ -1048,7 +1085,7 @@ static inline int op_sendvb( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  return send_by_name( vm, mrbc_irep_symbol_id(vm->pc_irep, b), regs, a, CALL_MAXARGS, 1 );
+  return send_by_name( vm, mrbc_irep_symbol_id(vm->cur_irep, b), regs, a, CALL_MAXARGS, 1 );
 }
 
 
@@ -1065,7 +1102,7 @@ static inline int op_send( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BBB();
 
-  return send_by_name( vm, mrbc_irep_symbol_id(vm->pc_irep, b), regs, a, c, 0 );
+  return send_by_name( vm, mrbc_irep_symbol_id(vm->cur_irep, b), regs, a, c, 0 );
 }
 
 
@@ -1082,7 +1119,7 @@ static inline int op_sendb( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BBB();
 
-  return send_by_name( vm, mrbc_irep_symbol_id(vm->pc_irep, b), regs, a, c, 1 );
+  return send_by_name( vm, mrbc_irep_symbol_id(vm->cur_irep, b), regs, a, c, 1 );
 }
 
 
@@ -1137,13 +1174,13 @@ static inline int op_super( mrbc_vm *vm, mrbc_value *regs )
   cls = cls->super;
   assert( cls );
   if( mrbc_find_method( &method, cls, callinfo->method_id ) == 0 ) {
-    console_printf("Undefined method '%s' for %s\n",
-		   symid_to_str(callinfo->method_id), symid_to_str(cls->sym_id));
+    mrbc_printf("Undefined method '%s' for %s\n",
+		symid_to_str(callinfo->method_id), symid_to_str(cls->sym_id));
     return 1;
   }
 
   if( method.c_func ) {
-    console_printf("Not support.\n");	// TODO
+    mrbc_printf("Not support.\n");	// TODO
     return 1;
   }
 
@@ -1151,11 +1188,11 @@ static inline int op_super( mrbc_vm *vm, mrbc_value *regs )
   callinfo->own_class = method.cls;
 
   // target irep
-  vm->pc_irep = method.irep;
-  vm->inst = method.irep->code;
+  vm->cur_irep = method.irep;
+  vm->inst = method.irep->inst;
 
   // new regs
-  vm->current_regs += a;
+  vm->cur_regs += a;
 
   return 0;
 }
@@ -1179,11 +1216,11 @@ static inline int op_argary( mrbc_vm *vm, mrbc_value *regs )
 
   if( b & 0x400 ) {	// check REST parameter.
     // TODO: want to support.
-    console_printf("Not support rest parameter by super.\n");
+    mrbc_printf("Not support rest parameter by super.\n");
     return 1;
   }
   if( b & 0x3e0 ) {	// check m2 parameter.
-    console_printf("ArgumentError: not support m2 or keyword argument.\n");
+    mrbc_printf("ArgumentError: not support m2 or keyword argument.\n");
     return 1;		// raise?
   }
 
@@ -1223,6 +1260,13 @@ static inline int op_enter( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_W();
 
+  // Check the number of registers to use.
+  int reg_use_max = regs - vm->regs + vm->cur_irep->nregs;
+  if( reg_use_max >= MAX_REGS_SIZE ) {
+    mrbc_raise(vm, MRBC_CLASS(Exception), "MAX_REGS_SIZE overflow.");
+    return -1;
+  }
+
   int m1 = (a >> 18) & 0x1f;	// # of required parameters 1
   int o  = (a >> 13) & 0x1f;	// # of optional parameters
 #define FLAG_REST_PARAM (a & 0x1000)
@@ -1231,17 +1275,17 @@ static inline int op_enter( mrbc_vm *vm, mrbc_value *regs )
 
   // OP_SENDV or OP_SENDVB
   int flag_sendv_pattern = ( argc == CALL_MAXARGS );
-  if( flag_sendv_pattern ){
+  if( flag_sendv_pattern ) {
     argc = 1;
   }
 
   if( a & 0xffc ) {	// check m2 and k parameter.
-    console_printf("ArgumentError: not support m2 or keyword argument.\n");
+    mrbc_printf("ArgumentError: not support m2 or keyword argument.\n");
     return 1;		// raise?
   }
 
   if( !flag_sendv_pattern && argc < m1 && regs[0].tt != MRBC_TT_PROC ) {
-    console_printf("ArgumentError: wrong number of arguments.\n");
+    mrbc_printf("ArgumentError: wrong number of arguments.\n");
     return 1;		// raise?
   }
 
@@ -1253,13 +1297,13 @@ static inline int op_enter( mrbc_vm *vm, mrbc_value *regs )
   // support op_sendv pattern
   int flag_yield_pattern = ( regs[0].tt == MRBC_TT_PROC &&
 			     regs[1].tt == MRBC_TT_ARRAY && argc != m1 );
-  if( flag_yield_pattern || flag_sendv_pattern ){
+  if( flag_yield_pattern || flag_sendv_pattern ) {
     mrbc_value argary = regs[1];
     regs[1].tt = MRBC_TT_EMPTY;
 
     int i;
     int copy_size;
-    if( flag_sendv_pattern ){
+    if( flag_sendv_pattern ) {
       copy_size = mrbc_array_size(&argary);
     } else {
       copy_size = m1;
@@ -1318,8 +1362,8 @@ static inline int op_enter( mrbc_vm *vm, mrbc_value *regs )
   }
 
   // proc の位置を求める
-  if( proc.tt == MRBC_TT_PROC ){
-    if( flag_sendv_pattern ){
+  if( proc.tt == MRBC_TT_PROC ) {
+    if( flag_sendv_pattern ) {
       // Nothing
     } else {
       if( argc >= i ) i = argc + 1;
@@ -1333,7 +1377,7 @@ static inline int op_enter( mrbc_vm *vm, mrbc_value *regs )
   if( jmp_ofs > 0 ) {
     if( jmp_ofs > o ) {
       if( !FLAG_REST_PARAM && regs[0].tt != MRBC_TT_PROC ) {
-	console_printf("ArgumentError: wrong number of arguments.\n");
+	mrbc_printf("ArgumentError: wrong number of arguments.\n");
 	return 1;	// raise?
       }
       jmp_ofs = o;
@@ -1360,28 +1404,41 @@ static inline int op_return( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
 
-  if (vm->flag_permanence == 1 && vm->callinfo_tail == NULL) {
-    mrbc_incref(&regs[a]);
+  // check return from ensure.
+  if( vm->exception.tt == MRBC_TT_RETBLK ) {
+    vm->exception.tt = MRBC_TT_NIL;
+    goto RETURN;
+  }
+
+  // if in catch handler, jump to ensure.
+  // and then return back via OP_RAISEIF.
+  const mrbc_irep_catch_handler *handler = catch_handler_find(vm, 0, MRBC_CATCH_FILTER_ENSURE);
+  if( handler ) {
+    assert( vm->exception.tt == MRBC_TT_NIL );
+    vm->exception.tt = MRBC_TT_RETBLK;
+    vm->exception.jmpuw = vm->inst - 2;	// 2 is size of OP_RETURN
+    vm->inst = vm->cur_irep->inst + bin_to_uint32(handler->target);
+    return 0;
+  }
+
+
+ RETURN:
+  // return without anything if top level.
+  if( vm->callinfo_tail == NULL ) {
+    if ( vm->flag_permanence ) {
+      mrbc_incref(&regs[a]);
+    } else {
+      vm->flag_preemption = 1;
+    }
     return -1;
   }
 
+  // set return value
   mrbc_decref(&regs[0]);
   regs[0] = regs[a];
   regs[a].tt = MRBC_TT_EMPTY;
 
-  STOP_IF_TOPLEVEL();
-
-
   mrbc_pop_callinfo(vm);
-
-  // nregs to release
-  int nregs = vm->pc_irep->nregs;
-
-  // clear stacked arguments
-  int i;
-  for( i = 1; i < nregs; i++ ) {
-    mrbc_decref_empty( &regs[i] );
-  }
 
   return 0;
 }
@@ -1400,8 +1457,30 @@ static inline int op_return_blk( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
 
-  int nregs = vm->pc_irep->nregs;
-  mrbc_value *p_reg;
+  // check return from ensure.
+  if( vm->exception.tt == MRBC_TT_RETBLK ) {
+    vm->exception.tt = MRBC_TT_NIL;
+    goto RETURN_TO_OUT_OF_BLOCK;
+  }
+
+  // if in catch handler, jump to ensure.
+  // and then return back via OP_RAISEIF.
+  const mrbc_irep_catch_handler *handler = catch_handler_find(vm, 0, MRBC_CATCH_FILTER_ENSURE);
+  if( handler ) {
+    assert( vm->exception.tt == MRBC_TT_NIL );
+    vm->exception.tt = MRBC_TT_RETBLK;
+    vm->exception.jmpuw = vm->inst - 2;	// 2 is size of OP_RETURN_BRK
+    vm->inst = vm->cur_irep->inst + bin_to_uint32(handler->target);
+    return 0;
+  }
+
+
+ RETURN_TO_OUT_OF_BLOCK:;
+  // save return value.
+  mrbc_value ret_val = regs[a];
+  regs[a].tt = MRBC_TT_EMPTY;
+
+  mrbc_value *ret_reg;
 
   if( regs[0].tt == MRBC_TT_PROC ) {
     mrbc_callinfo *callinfo = vm->callinfo_tail;
@@ -1413,25 +1492,29 @@ static inline int op_return_blk( mrbc_vm *vm, mrbc_value *regs )
       callinfo = vm->callinfo_tail;
     } while( callinfo != caller_callinfo );
 
-    p_reg = callinfo->current_regs + callinfo->reg_offset;
+    // return without anything if top level.
+    if( callinfo == NULL ) {
+      vm->flag_preemption = 1;
+      return -1;
+    }
+
+    ret_reg = callinfo->cur_regs + callinfo->reg_offset;
 
   } else {
-    p_reg = &regs[0];
+    ret_reg = &regs[0];
+  }
+
+  // return without anything if top level.
+  if( vm->callinfo_tail == NULL ) {
+    vm->flag_preemption = 1;
+    return -1;
   }
 
   // set return value
-  mrbc_decref( p_reg );
-  *p_reg = regs[a];
-  regs[a].tt = MRBC_TT_EMPTY;
-
-  STOP_IF_TOPLEVEL();
+  mrbc_decref( ret_reg );
+  *ret_reg = ret_val;
 
   mrbc_pop_callinfo(vm);
-
-  // clear stacked arguments
-  while( ++p_reg < &regs[nregs] ) {
-    mrbc_decref_empty( p_reg );
-  }
 
   return 0;
 }
@@ -1452,27 +1535,43 @@ static inline int op_break( mrbc_vm *vm, mrbc_value *regs )
 
   assert( regs[0].tt == MRBC_TT_PROC );
 
-  int nregs = vm->pc_irep->nregs;
-  mrbc_callinfo *callinfo = vm->callinfo_tail;
-  mrbc_callinfo *caller_callinfo = regs[0].proc->callinfo;
-  mrbc_value *p_reg;
+  // check return from ensure.
+  if( vm->exception.tt == MRBC_TT_RETBLK ) {
+    vm->exception.tt = MRBC_TT_NIL;
+    goto RETURN_TO_OUT_OF_BLOCK;
+  }
+
+  // if in catch handler, jump to ensure.
+  // and then return back via OP_RAISEIF.
+  const mrbc_irep_catch_handler *handler = catch_handler_find(vm, 0, MRBC_CATCH_FILTER_ENSURE);
+  if( handler ) {
+    assert( vm->exception.tt == MRBC_TT_NIL );
+    vm->exception.tt = MRBC_TT_RETBLK;
+    vm->exception.jmpuw = vm->inst - 2;	// 2 is size of OP_BREAK
+    vm->inst = vm->cur_irep->inst + bin_to_uint32(handler->target);
+    return 0;
+  }
+
+
+ RETURN_TO_OUT_OF_BLOCK:;
+  // save return value.
+  mrbc_value ret_val = regs[a];
+  regs[a].tt = MRBC_TT_EMPTY;
 
   // trace back to caller
+  mrbc_callinfo *callinfo = vm->callinfo_tail;
+  mrbc_callinfo *caller_callinfo = regs[0].proc->callinfo;
+  mrbc_value *ret_reg;
+
   do {
-    p_reg = callinfo->current_regs + callinfo->reg_offset;
+    ret_reg = callinfo->cur_regs + callinfo->reg_offset;
     mrbc_pop_callinfo(vm);
     callinfo = vm->callinfo_tail;
   } while( callinfo != caller_callinfo );
 
   // set return value
-  mrbc_decref( p_reg );
-  *p_reg = regs[a];
-  regs[a].tt = MRBC_TT_EMPTY;
-
-  // clear stacked arguments
-  while( ++p_reg < &regs[nregs] ) {
-    mrbc_decref_empty( p_reg );
-  }
+  mrbc_decref( ret_reg );
+  *ret_reg = ret_val;
 
   return 0;
 }
@@ -1498,7 +1597,7 @@ static inline int op_blkpush( mrbc_vm *vm, mrbc_value *regs )
   int lv = (b      ) & 0x0f;
 
   if( m2 ) {
-    console_printf("ArgumentError: not support m2 or keyword argument.\n");
+    mrbc_printf("ArgumentError: not support m2 or keyword argument.\n");
     return 1;		// raise?
   }
 
@@ -1513,10 +1612,10 @@ static inline int op_blkpush( mrbc_vm *vm, mrbc_value *regs )
     assert( regs[0].tt == MRBC_TT_PROC );
 
     mrbc_callinfo *callinfo = regs[0].proc->callinfo_self;
-    blk = callinfo->current_regs + callinfo->reg_offset + offset;
+    blk = callinfo->cur_regs + callinfo->reg_offset + offset;
   }
   if( blk->tt != MRBC_TT_PROC ) {
-    console_printf("no block given (yield) (LocalJumpError)\n");
+    mrbc_printf("no block given (yield) (LocalJumpError)\n");
     return 1;	// raise?
   }
 
@@ -1925,7 +2024,7 @@ static inline int op_array2( mrbc_vm *vm, mrbc_value *regs )
   if( value.array == NULL ) return -1;  // ENOMEM
 
   int i;
-  for( i=0 ; i<c ; i++ ){
+  for( i=0 ; i<c ; i++ ) {
     mrbc_incref( &regs[b+i] );
     value.array->data[i] = regs[b+i];
   }
@@ -1951,7 +2050,7 @@ static inline int op_arycat( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_B();
 
-  if( regs[a].tt == MRBC_TT_NIL ){
+  if( regs[a].tt == MRBC_TT_NIL ) {
     // arycat(nil, [...]) #=> [...]
     assert( regs[a+1].tt == MRBC_TT_ARRAY );
     regs[a] = regs[a+1];
@@ -1968,7 +2067,7 @@ static inline int op_arycat( mrbc_vm *vm, mrbc_value *regs )
   int new_size = size_1 + regs[a+1].array->n_stored;
 
   // need resize?
-  if( regs[a].array->data_size < new_size ){
+  if( regs[a].array->data_size < new_size ) {
     mrbc_array_resize(&regs[a], new_size);
   }
 
@@ -2022,13 +2121,13 @@ static inline int op_aref( mrbc_vm *vm, mrbc_value *regs )
 
   mrbc_decref( dst );
 
-  if( src->tt == MRBC_TT_ARRAY ){
+  if( src->tt == MRBC_TT_ARRAY ) {
     // src is Array
     *dst = mrbc_array_get(src, c);
     mrbc_incref(dst);
   } else {
     // src is not Array
-    if( c == 0 ){
+    if( c == 0 ) {
       mrbc_incref(src);
       *dst = *src;
     } else {
@@ -2073,7 +2172,7 @@ static inline int op_apost( mrbc_vm *vm, mrbc_value *regs )
   FETCH_BBB();
 
   mrbc_value src = regs[a];
-  if( src.tt != MRBC_TT_ARRAY ){
+  if( src.tt != MRBC_TT_ARRAY ) {
     src = mrbc_array_new(vm, 1);
     src.array->data[0] = regs[a];
     src.array->n_stored = 1;
@@ -2083,7 +2182,7 @@ static inline int op_apost( mrbc_vm *vm, mrbc_value *regs )
   int post = c;
   int len = src.array->n_stored;
 
-  if( len > pre + post ){
+  if( len > pre + post ) {
     int ary_size = len-pre-post;
     regs[a] = mrbc_array_new(vm, ary_size);
     // copy elements
@@ -2239,7 +2338,7 @@ static inline int op_method( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  mrbc_value val = mrbc_proc_new(vm, mrbc_irep_child_irep(vm->pc_irep, b));
+  mrbc_value val = mrbc_proc_new(vm, mrbc_irep_child_irep(vm->cur_irep, b));
   if( !val.proc ) return -1;	// ENOMEM
 
   mrbc_decref(&regs[a]);
@@ -2262,7 +2361,7 @@ static inline int op_method16( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BS();
 
-  mrbc_value val = mrbc_proc_new(vm, mrbc_irep_child_irep(vm->pc_irep, b));
+  mrbc_value val = mrbc_proc_new(vm, mrbc_irep_child_irep(vm->cur_irep, b));
   if( !val.proc ) return -1;	// ENOMEM
 
   mrbc_decref(&regs[a]);
@@ -2308,7 +2407,7 @@ static inline int op_class( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  const char *class_name = mrbc_irep_symbol_cstr(vm->pc_irep, b);
+  const char *class_name = mrbc_irep_symbol_cstr(vm->cur_irep, b);
   mrbc_class *super = (regs[a+1].tt == MRBC_TT_CLASS) ? regs[a+1].cls : 0;
   mrbc_class *cls = mrbc_define_class(vm, class_name, super);
   if( !cls ) return -1;		// ENOMEM
@@ -2340,11 +2439,11 @@ static inline int op_exec( mrbc_vm *vm, mrbc_value *regs )
   mrbc_push_callinfo(vm, 0, 0, 0);
 
   // target irep
-  vm->pc_irep = mrbc_irep_child_irep(vm->pc_irep, b);
-  vm->inst = vm->pc_irep->code;
+  vm->cur_irep = mrbc_irep_child_irep(vm->cur_irep, b);
+  vm->inst = vm->cur_irep->inst;
 
   // new regs and class
-  vm->current_regs += a;
+  vm->cur_regs += a;
   vm->target_class = regs[a].cls;
 
   return 0;
@@ -2369,11 +2468,11 @@ static inline int op_exec16( mrbc_vm *vm, mrbc_value *regs )
   mrbc_push_callinfo(vm, 0, 0, 0);
 
   // target irep
-  vm->pc_irep = mrbc_irep_child_irep(vm->pc_irep, b);
-  vm->inst = vm->pc_irep->code;
+  vm->cur_irep = mrbc_irep_child_irep(vm->cur_irep, b);
+  vm->inst = vm->cur_irep->inst;
 
   // new regs and class
-  vm->current_regs += a;
+  vm->cur_regs += a;
   vm->target_class = regs[a].cls;
 
   return 0;
@@ -2397,13 +2496,18 @@ static inline int op_def( mrbc_vm *vm, mrbc_value *regs )
   assert( regs[a+1].tt == MRBC_TT_PROC );
 
   mrbc_class *cls = regs[a].cls;
-  mrbc_sym sym_id = mrbc_irep_symbol_id(vm->pc_irep, b);
+  mrbc_sym sym_id = mrbc_irep_symbol_id(vm->cur_irep, b);
   mrbc_proc *proc = regs[a+1].proc;
+  mrbc_method *method;
 
-  mrbc_method *method = mrbc_raw_alloc( sizeof(mrbc_method) );
+  if( vm->vm_id == 0 ) {
+    method = mrbc_raw_alloc_no_free( sizeof(mrbc_method) );
+  } else {
+    method = mrbc_raw_alloc( sizeof(mrbc_method) );
+  }
   if( !method ) return -1; // ENOMEM
 
-  method->type = 'M';
+  method->type = (vm->vm_id == 0) ? 'm' : 'M';
   method->c_func = 0;
   method->sym_id = sym_id;
   method->irep = proc->irep;
@@ -2417,14 +2521,7 @@ static inline int op_def( mrbc_vm *vm, mrbc_value *regs )
       mrbc_method *del_method = method->next;
 
       method->next = del_method->next;
-      /* (note)
-         Case c_func == 0 is defined by this ope-code.
-         Case c_func == 1 is defined by mrbc_define_method() function.
-         That function uses mrbc_raw_alloc_no_free() to allocate memory.
-         Thus not free this memory.
-         Case c_func == 2 is builtin C function. maybe create by OP_ALIAS.
-      */
-      if( del_method->c_func != 1 ) mrbc_raw_free( del_method );
+      if( del_method->type == 'M' ) mrbc_raw_free( del_method );
 
       break;
     }
@@ -2447,33 +2544,31 @@ static inline int op_alias( mrbc_vm *vm, mrbc_value *regs )
 {
   FETCH_BB();
 
-  mrbc_sym sym_id_new = mrbc_irep_symbol_id(vm->pc_irep, a);
-  mrbc_sym sym_id_org = mrbc_irep_symbol_id(vm->pc_irep, b);
+  mrbc_sym sym_id_new = mrbc_irep_symbol_id(vm->cur_irep, a);
+  mrbc_sym sym_id_org = mrbc_irep_symbol_id(vm->cur_irep, b);
   mrbc_class *cls = vm->target_class;
-  mrbc_method method_org;
+  mrbc_method *method = mrbc_raw_alloc( sizeof(mrbc_method) );
+  if( !method ) return 0;	// ENOMEM
 
-  if( mrbc_find_method( &method_org, cls, sym_id_org ) == 0 ) {
-    console_printf("NameError: undefined method '%s'\n",
-		   symid_to_str(sym_id_org));
+  if( mrbc_find_method( method, cls, sym_id_org ) == 0 ) {
+    mrbc_printf("NameError: undefined method '%s'\n",
+		symid_to_str(sym_id_org));
+    mrbc_raw_free( method );
     return 0;
   }
 
-  // copy method and chain link list.
-  mrbc_method *method_new = mrbc_raw_alloc( sizeof(mrbc_method) );
-  if( !method_new ) return 0;	// ENOMEM
-
-  *method_new = method_org;
-  method_new->sym_id = sym_id_new;
-  method_new->next = cls->method_link;
-  cls->method_link = method_new;
+  method->type = 'M';
+  method->sym_id = sym_id_new;
+  method->next = cls->method_link;
+  cls->method_link = method;
 
   // checking same method
   //  see OP_DEF function. same it.
-  for( ;method_new->next != NULL; method_new = method_new->next ) {
-    if( method_new->next->sym_id == sym_id_new ) {
-      mrbc_method *del_method = method_new->next;
-      method_new->next = del_method->next;
-      if( del_method->c_func != 1 ) mrbc_raw_free( del_method );
+  for( ;method->next != NULL; method = method->next ) {
+    if( method->next->sym_id == sym_id_new ) {
+      mrbc_method *del_method = method->next;
+      method->next = del_method->next;
+      if( del_method->type == 'M' ) mrbc_raw_free( del_method );
       break;
     }
   }
@@ -2566,7 +2661,7 @@ static inline int op_dummy_Z( mrbc_vm *vm, mrbc_value *regs )
   uint8_t op = *(vm->inst - 1);
   FETCH_Z();
 
-  console_printf("# Skip OP 0x%02x\n", op);
+  mrbc_printf("# Skip OP 0x%02x\n", op);
   return 0;
 }
 
@@ -2579,7 +2674,7 @@ static inline int op_dummy_B( mrbc_vm *vm, mrbc_value *regs )
   uint8_t op = *(vm->inst - 1);
   FETCH_B();
 
-  console_printf("# Skip OP 0x%02x\n", op);
+  mrbc_printf("# Skip OP 0x%02x\n", op);
   return 0;
 }
 
@@ -2592,7 +2687,7 @@ static inline int op_dummy_BB( mrbc_vm *vm, mrbc_value *regs )
   uint8_t op = *(vm->inst - 1);
   FETCH_BB();
 
-  console_printf("# Skip OP 0x%02x\n", op);
+  mrbc_printf("# Skip OP 0x%02x\n", op);
   return 0;
 }
 
@@ -2605,7 +2700,7 @@ static inline int op_dummy_BBB( mrbc_vm *vm, mrbc_value *regs )
   uint8_t op = *(vm->inst - 1);
   FETCH_BBB();
 
-  console_printf("# Skip OP 0x%02x\n", op);
+  mrbc_printf("# Skip OP 0x%02x\n", op);
   return 0;
 }
 
@@ -2646,12 +2741,11 @@ mrbc_vm *mrbc_vm_open( struct VM *vm_arg )
 
   // initialize attributes.
   memset(vm, 0, sizeof(mrbc_vm));	// caution: assume NULL is zero.
+#if defined(MRBC_DEBUG)
+  memcpy(vm->type, "VM", 2);
+#endif
   if( vm_arg == NULL ) vm->flag_need_memfree = 1;
   vm->vm_id = vm_id;
-
-#ifdef MRBC_DEBUG
-  vm->flag_debug_mode = 1;
-#endif
 
   return vm;
 }
@@ -2670,7 +2764,7 @@ void mrbc_vm_close( struct VM *vm )
   free_vm_bitmap[idx] &= ~bit;
 
   // free irep and vm
-  if( vm->irep ) mrbc_irep_free( vm->irep );
+  if( vm->top_irep ) mrbc_irep_free( vm->top_irep );
   if( vm->flag_need_memfree ) mrbc_raw_free(vm);
 }
 
@@ -2682,25 +2776,21 @@ void mrbc_vm_close( struct VM *vm )
 */
 void mrbc_vm_begin( struct VM *vm )
 {
-  vm->pc_irep = vm->irep;
-  vm->inst = vm->pc_irep->code;
+  vm->cur_irep = vm->top_irep;
+  vm->inst = vm->cur_irep->inst;
 
-  memset(vm->regs, 0, sizeof(vm->regs));
-  int i;
-  for( i = 1; i < MAX_REGS_SIZE; i++ ) {
-    vm->regs[i].tt = MRBC_TT_NIL;
-  }
-  // set self to reg[0]
+  // set self to reg[0], others nil
   vm->regs[0] = mrbc_instance_new(vm, mrbc_class_object, 0);
   if( vm->regs[0].instance == NULL ) return;	// ENOMEM
+  int i;
+  for( i = 1; i < MAX_REGS_SIZE; i++ ) {
+    vm->regs[i] = mrbc_nil_value();
+  }
 
-  vm->current_regs = vm->regs;
+  vm->cur_regs = vm->regs;
   vm->callinfo_tail = NULL;
   vm->target_class = mrbc_class_object;
-
-  vm->exc = mrbc_nil_value();
-
-  vm->error_code = 0;
+  vm->exception = mrbc_nil_value();
   vm->flag_preemption = 0;
 }
 
@@ -2712,16 +2802,32 @@ void mrbc_vm_begin( struct VM *vm )
 */
 void mrbc_vm_end( struct VM *vm )
 {
-  int i;
-  for( i = 0; i < MAX_REGS_SIZE; i++ ) {
-    mrbc_decref_empty(&vm->regs[i]);
+  if( mrbc_israised(vm) ) {
+    mrbc_printf( "Exception : %s (%s)\n",
+		 symid_to_str(vm->exception.exception->cls->sym_id),
+		 vm->exception.exception->message ?
+		   (const char *)vm->exception.exception->message :
+		   symid_to_str(vm->exception.exception->cls->sym_id) );
+    mrbc_decref(&vm->exception);
   }
 
+  int n_used = 0;
+  int i;
+  for( i = 0; i < MAX_REGS_SIZE; i++ ) {
+    //mrbc_printf("vm->regs[%d].tt = %d\n", i, mrbc_type(vm->regs[i]));
+    if( mrbc_type(vm->regs[i]) != MRBC_TT_NIL ) n_used = i;
+    mrbc_decref_empty(&vm->regs[i]);
+  }
+#if defined(MRBC_DEBUG_REGS)
+  mrbc_printf("Finally number of registers used was %d in VM %d.\n",
+	      n_used, vm->vm_id );
+#endif
+
+#if defined(MRBC_ALLOC_VMID)
   mrbc_global_clear_vm_id();
   mrbc_free_all(vm);
+#endif
 }
-
-
 
 
 //================================================================
@@ -2734,145 +2840,152 @@ int mrbc_vm_run( struct VM *vm )
 {
   int ret = 0;
 
-  do {
-    // regs
-    mrbc_value *regs = vm->current_regs;
+  while( 1 ) {
+    do {
+      // regs
+      mrbc_value *regs = vm->cur_regs;
 
-    // Dispatch
-    uint8_t op = *vm->inst++;
+      // Dispatch
+      uint8_t op = *vm->inst++;
 
-    // console_printf("%03d: OP=%02x\n", (vm->inst-1) - vm->pc_irep->code, op);
+      switch( op ) {
+      case OP_NOP:        ret = op_nop       (vm, regs); break;
+      case OP_MOVE:       ret = op_move      (vm, regs); break;
+      case OP_LOADL:      ret = op_loadl     (vm, regs); break;
+      case OP_LOADL16:    ret = op_loadl16   (vm, regs); break;
+      case OP_LOADI:      ret = op_loadi     (vm, regs); break;
+      case OP_LOADINEG:   ret = op_loadineg  (vm, regs); break;
+      case OP_LOADI__1:   // fall through
+      case OP_LOADI_0:    // fall through
+      case OP_LOADI_1:    // fall through
+      case OP_LOADI_2:    // fall through
+      case OP_LOADI_3:    // fall through
+      case OP_LOADI_4:    // fall through
+      case OP_LOADI_5:    // fall through
+      case OP_LOADI_6:    // fall through
+      case OP_LOADI_7:    ret = op_loadi_n   (vm, regs); break;
+      case OP_LOADI16:    ret = op_loadi16   (vm, regs); break;
+      case OP_LOADI32:    ret = op_loadi32   (vm, regs); break;
+      case OP_LOADSYM:    ret = op_loadsym   (vm, regs); break;
+      case OP_LOADSYM16:  ret = op_loadsym16 (vm, regs); break;
+      case OP_LOADNIL:    ret = op_loadnil   (vm, regs); break;
+      case OP_LOADSELF:   ret = op_loadself  (vm, regs); break;
+      case OP_LOADT:      ret = op_loadt     (vm, regs); break;
+      case OP_LOADF:      ret = op_loadf     (vm, regs); break;
+      case OP_GETGV:      ret = op_getgv     (vm, regs); break;
+      case OP_SETGV:      ret = op_setgv     (vm, regs); break;
+      case OP_GETSV:      ret = op_dummy_BB  (vm, regs); break;
+      case OP_SETSV:      ret = op_dummy_BB  (vm, regs); break;
+      case OP_GETIV:      ret = op_getiv     (vm, regs); break;
+      case OP_SETIV:      ret = op_setiv     (vm, regs); break;
+      case OP_GETCV:      ret = op_dummy_BB  (vm, regs); break;
+      case OP_SETCV:      ret = op_dummy_BB  (vm, regs); break;
+      case OP_GETCONST:   ret = op_getconst  (vm, regs); break;
+      case OP_SETCONST:   ret = op_setconst  (vm, regs); break;
+      case OP_GETMCNST:   ret = op_getmcnst  (vm, regs); break;
+      case OP_SETMCNST:   ret = op_dummy_BB  (vm, regs); break;
+      case OP_GETUPVAR:   ret = op_getupvar  (vm, regs); break;
+      case OP_SETUPVAR:   ret = op_setupvar  (vm, regs); break;
+      case OP_JMP:        ret = op_jmp       (vm, regs); break;
+      case OP_JMPIF:      ret = op_jmpif     (vm, regs); break;
+      case OP_JMPNOT:     ret = op_jmpnot    (vm, regs); break;
+      case OP_JMPNIL:     ret = op_jmpnil    (vm, regs); break;
+      case OP_JMPUW:      ret = op_jmpuw     (vm, regs); break;
+      case OP_EXCEPT:     ret = op_except    (vm, regs); break;
+      case OP_RESCUE:     ret = op_rescue    (vm, regs); break;
+      case OP_RAISEIF:    ret = op_raiseif   (vm, regs); break;
+      case OP_SENDV:      ret = op_sendv     (vm, regs); break;
+      case OP_SENDVB:     ret = op_sendvb    (vm, regs); break;
+      case OP_SEND:       ret = op_send      (vm, regs); break;
+      case OP_SENDB:      ret = op_sendb     (vm, regs); break;
+	//case OP_SENDVK:     ret = op_sendvk    (vm, regs); break;
+      case OP_CALL:       ret = op_dummy_Z   (vm, regs); break;
+      case OP_SUPER:      ret = op_super     (vm, regs); break;
+      case OP_ARGARY:     ret = op_argary    (vm, regs); break;
+      case OP_ENTER:      ret = op_enter     (vm, regs); break;
+      case OP_KEY_P:      ret = op_dummy_BB  (vm, regs); break;
+      case OP_KEYEND:     ret = op_dummy_Z   (vm, regs); break;
+      case OP_KARG:       ret = op_dummy_BB  (vm, regs); break;
+      case OP_RETURN:     ret = op_return    (vm, regs); break;
+      case OP_RETURN_BLK: ret = op_return_blk(vm, regs); break;
+      case OP_BREAK:      ret = op_break     (vm, regs); break;
+      case OP_BLKPUSH:    ret = op_blkpush   (vm, regs); break;
+      case OP_ADD:        ret = op_add       (vm, regs); break;
+      case OP_ADDI:       ret = op_addi      (vm, regs); break;
+      case OP_SUB:        ret = op_sub       (vm, regs); break;
+      case OP_SUBI:       ret = op_subi      (vm, regs); break;
+      case OP_MUL:        ret = op_mul       (vm, regs); break;
+      case OP_DIV:        ret = op_div       (vm, regs); break;
+      case OP_EQ:         ret = op_eq        (vm, regs); break;
+      case OP_LT:         ret = op_lt        (vm, regs); break;
+      case OP_LE:         ret = op_le        (vm, regs); break;
+      case OP_GT:         ret = op_gt        (vm, regs); break;
+      case OP_GE:         ret = op_ge        (vm, regs); break;
+      case OP_ARRAY:      ret = op_array     (vm, regs); break;
+      case OP_ARRAY2:     ret = op_array2    (vm, regs); break;
+      case OP_ARYCAT:     ret = op_arycat    (vm, regs); break;
+      case OP_ARYPUSH:    ret = op_dummy_B   (vm, regs); break;
+      case OP_ARYDUP:     ret = op_arydup    (vm, regs); break;
+      case OP_AREF:       ret = op_aref      (vm, regs); break;
+      case OP_ASET:       ret = op_aset      (vm, regs); break;
+      case OP_APOST:      ret = op_apost     (vm, regs); break;
+      case OP_INTERN:     ret = op_intern    (vm, regs); break;
+      case OP_STRING:     ret = op_string    (vm, regs); break;
+      case OP_STRING16:   ret = op_string16  (vm, regs); break;
+      case OP_STRCAT:     ret = op_strcat    (vm, regs); break;
+      case OP_HASH:       ret = op_hash      (vm, regs); break;
+      case OP_HASHADD:    ret = op_dummy_BB  (vm, regs); break;
+      case OP_HASHCAT:    ret = op_dummy_B   (vm, regs); break;
+      case OP_LAMBDA:     ret = op_dummy_BB  (vm, regs); break;
+      case OP_BLOCK:      // fall through
+      case OP_METHOD:     ret = op_method    (vm, regs); break;
+      case OP_BLOCK16:    // fall through, order of OP_METHOD and OP_BLOCK16 is changed.
+      case OP_METHOD16:   ret = op_method16  (vm, regs); break;
+      case OP_RANGE_INC:  // fall through
+      case OP_RANGE_EXC:  ret = op_range     (vm, regs); break;
+      case OP_OCLASS:     ret = op_dummy_B   (vm, regs); break;
+      case OP_CLASS:      ret = op_class     (vm, regs); break;
+      case OP_MODULE:     ret = op_dummy_BB  (vm, regs); break;
+      case OP_EXEC:       ret = op_exec      (vm, regs); break;
+      case OP_EXEC16:     ret = op_exec16    (vm, regs); break;
+      case OP_DEF:        ret = op_def       (vm, regs); break;
+      case OP_ALIAS:      ret = op_alias     (vm, regs); break;
+      case OP_UNDEF:      ret = op_dummy_B   (vm, regs); break;
+      case OP_SCLASS:     ret = op_sclass    (vm, regs); break;
+      case OP_TCLASS:     ret = op_tclass    (vm, regs); break;
+      case OP_DEBUG:      ret = op_dummy_BBB (vm, regs); break;
+      case OP_ERR:        ret = op_dummy_B   (vm, regs); break;
+      case OP_STOP:       ret = op_stop      (vm, regs); break;
 
-    switch( op ) {
-    case OP_NOP:        ret = op_nop       (vm, regs); break;
-    case OP_MOVE:       ret = op_move      (vm, regs); break;
-    case OP_LOADL:      ret = op_loadl     (vm, regs); break;
-    case OP_LOADL16:    ret = op_loadl16   (vm, regs); break;
-    case OP_LOADI:      ret = op_loadi     (vm, regs); break;
-    case OP_LOADINEG:   ret = op_loadineg  (vm, regs); break;
-    case OP_LOADI__1:   // fall through
-    case OP_LOADI_0:    // fall through
-    case OP_LOADI_1:    // fall through
-    case OP_LOADI_2:    // fall through
-    case OP_LOADI_3:    // fall through
-    case OP_LOADI_4:    // fall through
-    case OP_LOADI_5:    // fall through
-    case OP_LOADI_6:    // fall through
-    case OP_LOADI_7:    ret = op_loadi_n   (vm, regs); break;
-    case OP_LOADI16:    ret = op_loadi16   (vm, regs); break;
-    case OP_LOADI32:    ret = op_loadi32   (vm, regs); break;
-    case OP_LOADSYM:    ret = op_loadsym   (vm, regs); break;
-    case OP_LOADSYM16:  ret = op_loadsym16 (vm, regs); break;
-    case OP_LOADNIL:    ret = op_loadnil   (vm, regs); break;
-    case OP_LOADSELF:   ret = op_loadself  (vm, regs); break;
-    case OP_LOADT:      ret = op_loadt     (vm, regs); break;
-    case OP_LOADF:      ret = op_loadf     (vm, regs); break;
-    case OP_GETGV:      ret = op_getgv     (vm, regs); break;
-    case OP_SETGV:      ret = op_setgv     (vm, regs); break;
-    case OP_GETSV:      ret = op_dummy_BB  (vm, regs); break;
-    case OP_SETSV:      ret = op_dummy_BB  (vm, regs); break;
-    case OP_GETIV:      ret = op_getiv     (vm, regs); break;
-    case OP_SETIV:      ret = op_setiv     (vm, regs); break;
-    case OP_GETCV:      ret = op_dummy_BB  (vm, regs); break;
-    case OP_SETCV:      ret = op_dummy_BB  (vm, regs); break;
-    case OP_GETCONST:   ret = op_getconst  (vm, regs); break;
-    case OP_SETCONST:   ret = op_setconst  (vm, regs); break;
-    case OP_GETMCNST:   ret = op_getmcnst  (vm, regs); break;
-    case OP_SETMCNST:   ret = op_dummy_BB  (vm, regs); break;
-    case OP_GETUPVAR:   ret = op_getupvar  (vm, regs); break;
-    case OP_SETUPVAR:   ret = op_setupvar  (vm, regs); break;
-    case OP_JMP:        ret = op_jmp       (vm, regs); break;
-    case OP_JMPIF:      ret = op_jmpif     (vm, regs); break;
-    case OP_JMPNOT:     ret = op_jmpnot    (vm, regs); break;
-    case OP_JMPNIL:     ret = op_jmpnil    (vm, regs); break;
-    case OP_JMPUW:      ret = op_jmpuw     (vm, regs); break;
-    case OP_EXCEPT:     ret = op_except    (vm, regs); break;
-    case OP_RESCUE:     ret = op_rescue    (vm, regs); break;
-    case OP_RAISEIF:    ret = op_raiseif   (vm, regs); break;
-    case OP_SENDV:      ret = op_sendv     (vm, regs); break;
-    case OP_SENDVB:     ret = op_sendvb    (vm, regs); break;
-    case OP_SEND:       ret = op_send      (vm, regs); break;
-    case OP_SENDB:      ret = op_sendb     (vm, regs); break;
-  //case OP_SENDVK:     ret = op_sendvk    (vm, regs); break;
-    case OP_CALL:       ret = op_dummy_Z   (vm, regs); break;
-    case OP_SUPER:      ret = op_super     (vm, regs); break;
-    case OP_ARGARY:     ret = op_argary    (vm, regs); break;
-    case OP_ENTER:      ret = op_enter     (vm, regs); break;
-    case OP_KEY_P:      ret = op_dummy_BB  (vm, regs); break;
-    case OP_KEYEND:     ret = op_dummy_Z   (vm, regs); break;
-    case OP_KARG:       ret = op_dummy_BB  (vm, regs); break;
-    case OP_RETURN:     ret = op_return    (vm, regs); break;
-    case OP_RETURN_BLK: ret = op_return_blk(vm, regs); break;
-    case OP_BREAK:      ret = op_break     (vm, regs); break;
-    case OP_BLKPUSH:    ret = op_blkpush   (vm, regs); break;
-    case OP_ADD:        ret = op_add       (vm, regs); break;
-    case OP_ADDI:       ret = op_addi      (vm, regs); break;
-    case OP_SUB:        ret = op_sub       (vm, regs); break;
-    case OP_SUBI:       ret = op_subi      (vm, regs); break;
-    case OP_MUL:        ret = op_mul       (vm, regs); break;
-    case OP_DIV:        ret = op_div       (vm, regs); break;
-    case OP_EQ:         ret = op_eq        (vm, regs); break;
-    case OP_LT:         ret = op_lt        (vm, regs); break;
-    case OP_LE:         ret = op_le        (vm, regs); break;
-    case OP_GT:         ret = op_gt        (vm, regs); break;
-    case OP_GE:         ret = op_ge        (vm, regs); break;
-    case OP_ARRAY:      ret = op_array     (vm, regs); break;
-    case OP_ARRAY2:     ret = op_array2    (vm, regs); break;
-    case OP_ARYCAT:     ret = op_arycat    (vm, regs); break;
-    case OP_ARYPUSH:    ret = op_dummy_B   (vm, regs); break;
-    case OP_ARYDUP:     ret = op_arydup    (vm, regs); break;
-    case OP_AREF:       ret = op_aref      (vm, regs); break;
-    case OP_ASET:       ret = op_aset      (vm, regs); break;
-    case OP_APOST:      ret = op_apost     (vm, regs); break;
-    case OP_INTERN:     ret = op_intern    (vm, regs); break;
-    case OP_STRING:     ret = op_string    (vm, regs); break;
-    case OP_STRING16:   ret = op_string16  (vm, regs); break;
-    case OP_STRCAT:     ret = op_strcat    (vm, regs); break;
-    case OP_HASH:       ret = op_hash      (vm, regs); break;
-    case OP_HASHADD:    ret = op_dummy_BB  (vm, regs); break;
-    case OP_HASHCAT:    ret = op_dummy_B   (vm, regs); break;
-    case OP_LAMBDA:     ret = op_dummy_BB  (vm, regs); break;
-    case OP_BLOCK:      // fall through
-    case OP_METHOD:     ret = op_method    (vm, regs); break;
-    case OP_BLOCK16:    // fall through, order of OP_METHOD and OP_BLOCK16 is changed.
-    case OP_METHOD16:   ret = op_method16  (vm, regs); break;
-    case OP_RANGE_INC:  // fall through
-    case OP_RANGE_EXC:  ret = op_range     (vm, regs); break;
-    case OP_OCLASS:     ret = op_dummy_B   (vm, regs); break;
-    case OP_CLASS:      ret = op_class     (vm, regs); break;
-    case OP_MODULE:     ret = op_dummy_BB  (vm, regs); break;
-    case OP_EXEC:       ret = op_exec      (vm, regs); break;
-    case OP_EXEC16:     ret = op_exec16    (vm, regs); break;
-    case OP_DEF:        ret = op_def       (vm, regs); break;
-    case OP_ALIAS:      ret = op_alias     (vm, regs); break;
-    case OP_UNDEF:      ret = op_dummy_B   (vm, regs); break;
-    case OP_SCLASS:     ret = op_sclass    (vm, regs); break;
-    case OP_TCLASS:     ret = op_tclass    (vm, regs); break;
-    case OP_DEBUG:      ret = op_dummy_BBB (vm, regs); break;
-    case OP_ERR:        ret = op_dummy_B   (vm, regs); break;
-    case OP_STOP:       ret = op_stop      (vm, regs); break;
+      case OP_ABORT:      ret = op_abort     (vm, regs); break;
+      default:
+	mrbc_printf("Unknown OP 0x%02x\n", op);
+	break;
+      }
+    } while( !vm->flag_preemption );
 
-    case OP_ABORT:      ret = op_abort     (vm, regs); break;
-    default:
-      console_printf("Unknown OP 0x%02x\n", op);
-      break;
-    }
+    if( !mrbc_israised(vm) ) return ret;	// normal return.
 
     // Handle exception
-    if( mrbc_israised(vm->exc) ){
-      // check
-      const mrbc_irep_catch_handler *handler = catch_handler_find(vm, MRBC_CATCH_FILTER_ALL);
-      if( handler != NULL ){
-	vm->inst = vm->pc_irep->code + bin_to_uint32(handler->target);
+    vm->flag_preemption = 0;
+    const mrbc_irep_catch_handler *handler =
+      catch_handler_find(vm, 0, MRBC_CATCH_FILTER_ALL);
+    if( !handler ) {
+      const mrbc_callinfo *callinfo = vm->callinfo_tail;
+
+      while( callinfo ) {
+	handler = catch_handler_find(0, callinfo, MRBC_CATCH_FILTER_ALL);
+	if( handler ) break;
+	callinfo = callinfo->prev;
       }
+      if( !callinfo ) return -2;	// to raise in top level.
+
+      while( vm->callinfo_tail != callinfo ) {
+	mrbc_pop_callinfo( vm );
+      }
+      mrbc_pop_callinfo( vm );
     }
 
-    // raise in top level
-    // exit vm
-    // if( vm->callinfo_tail == NULL && vm->exc ) return 0;
-  } while( !vm->flag_preemption );
-
-  vm->flag_preemption = 0;
-
-  return ret;
+    vm->inst = vm->cur_irep->inst + bin_to_uint32(handler->target);
+  }
 }

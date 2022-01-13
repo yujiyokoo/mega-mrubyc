@@ -61,8 +61,7 @@ mrbc_value mrbc_string_new(struct VM *vm, const void *src, int len)
   /*
     Allocate handle and string buffer.
   */
-  mrbc_string *h;
-  h = (mrbc_string *)mrbc_alloc(vm, sizeof(mrbc_string));
+  mrbc_string *h = mrbc_alloc(vm, sizeof(mrbc_string));
   if( !h ) return value;		// ENOMEM
 
   uint8_t *str = mrbc_alloc(vm, len+1);
@@ -118,8 +117,7 @@ mrbc_value mrbc_string_new_alloc(struct VM *vm, void *buf, int len)
   /*
     Allocate handle
   */
-  mrbc_string *h;
-  h = (mrbc_string *)mrbc_alloc(vm, sizeof(mrbc_string));
+  mrbc_string *h = mrbc_alloc(vm, sizeof(mrbc_string));
   if( !h ) return value;		// ENOMEM
 
   MRBC_INIT_OBJECT_HEADER( h, "ST" );
@@ -155,6 +153,7 @@ void mrbc_string_clear(mrbc_value *str)
 }
 
 
+#if defined(MRBC_ALLOC_VMID)
 //================================================================
 /*! clear vm_id
 */
@@ -163,6 +162,7 @@ void mrbc_string_clear_vm_id(mrbc_value *str)
   mrbc_set_vm_id( str->string, 0 );
   mrbc_set_vm_id( str->string->data, 0 );
 }
+#endif
 
 
 //================================================================
@@ -363,11 +363,11 @@ int mrbc_string_chomp(mrbc_value *src)
 static void c_string_new(struct VM *vm, mrbc_value v[], int argc)
 {
   if (argc == 1 && mrbc_type(v[1]) != MRBC_TT_STRING) {
-    console_print( "TypeError\n" ); // raise? TypeError
+    mrbc_print("TypeError\n");	// raise? TypeError
     return;
   }
   if (argc > 1) {
-    console_print( "Wrong number of arguments (expected 0..1)\n" ); // raise? ArgumentError
+    mrbc_print("Wrong number of arguments (expected 0..1)\n"); // raise? ArgumentError
     return;
   }
 
@@ -387,7 +387,7 @@ static void c_string_new(struct VM *vm, mrbc_value v[], int argc)
 static void c_string_add(struct VM *vm, mrbc_value v[], int argc)
 {
   if( mrbc_type(v[1]) != MRBC_TT_STRING ) {
-    console_print( "Not support STRING + Other\n" );
+    mrbc_print("Not support STRING + Other\n");
     return;
   }
 
@@ -403,12 +403,12 @@ static void c_string_add(struct VM *vm, mrbc_value v[], int argc)
 static void c_string_mul(struct VM *vm, mrbc_value v[], int argc)
 {
   if( mrbc_type(v[1]) != MRBC_TT_INTEGER ) {
-    console_print( "TypeError\n" );	// raise?
+    mrbc_print("TypeError\n");	// raise?
     return;
   }
 
   if( v[1].i < 0 ) {
-    console_printf( "ArgumentError\n" );	// raise?
+    mrbc_printf("ArgumentError\n");	// raise?
     return;
   }
 
@@ -504,7 +504,7 @@ static void c_string_slice(struct VM *vm, mrbc_value v[], int argc)
 
   // other case
   } else {
-    console_print( "Not support such case in String#[].\n" );
+    mrbc_print("Not support such case in String#[].\n");
     goto RETURN_NIL;
   }
 
@@ -557,7 +557,7 @@ static void c_string_insert(struct VM *vm, mrbc_value v[], int argc)
     other cases
   */
   else {
-    console_print( "Not support\n" );
+    mrbc_print("Not support\n");
     return;
   }
 
@@ -566,7 +566,7 @@ static void c_string_insert(struct VM *vm, mrbc_value v[], int argc)
   if( nth < 0 ) nth = len1 + nth;               // adjust to positive number.
   if( len > len1 - nth ) len = len1 - nth;
   if( nth < 0 || nth > len1 || len < 0) {
-    console_print( "IndexError\n" );  // raise?
+    mrbc_print("IndexError\n");  // raise?
     return;
   }
 
@@ -742,7 +742,7 @@ static void c_string_slice_self(struct VM *vm, mrbc_value v[], int argc)
 
   // other case
   } else {
-    console_print( "Not support such case in String#slice!.\n" );
+    mrbc_print("Not support such case in String#slice!.\n");
     goto RETURN_NIL;
   }
 
@@ -782,7 +782,7 @@ static void c_string_split(struct VM *vm, mrbc_value v[], int argc)
   int limit = 0;
   if( argc >= 2 ) {
     if( mrbc_type(v[2]) != MRBC_TT_INTEGER ) {
-      console_print( "TypeError\n" );     // raise?
+      mrbc_print("TypeError\n");	// raise?
       return;
     }
     limit = v[2].i;
@@ -804,7 +804,7 @@ static void c_string_split(struct VM *vm, mrbc_value v[], int argc)
     break;
 
   default:
-    console_print( "TypeError\n" );     // raise?
+    mrbc_print("TypeError\n");		// raise?
     return;
   }
 
@@ -1102,7 +1102,7 @@ static int tr_main( struct VM *vm, mrbc_value v[], int argc )
 {
   if( !(argc == 2 && mrbc_type(v[1]) == MRBC_TT_STRING &&
 	             mrbc_type(v[2]) == MRBC_TT_STRING)) {
-    console_print("ArgumentError\n");	// raise?
+    mrbc_print("ArgumentError\n");	// raise?
     return -1;
   }
 
@@ -1165,7 +1165,7 @@ static void c_string_tr_self(struct VM *vm, mrbc_value v[], int argc)
 static void c_string_start_with(struct VM *vm, mrbc_value v[], int argc)
 {
   if( !(argc == 1 && mrbc_type(v[1]) == MRBC_TT_STRING)) {
-    console_print("ArgumentError\n");	// raise?
+    mrbc_print("ArgumentError\n");	// raise?
     return;
   }
 
@@ -1187,7 +1187,7 @@ static void c_string_start_with(struct VM *vm, mrbc_value v[], int argc)
 static void c_string_end_with(struct VM *vm, mrbc_value v[], int argc)
 {
   if( !(argc == 1 && mrbc_type(v[1]) == MRBC_TT_STRING)) {
-    console_print("ArgumentError\n");	// raise?
+    mrbc_print("ArgumentError\n");	// raise?
     return;
   }
 
@@ -1210,7 +1210,7 @@ static void c_string_end_with(struct VM *vm, mrbc_value v[], int argc)
 static void c_string_include(struct VM *vm, mrbc_value v[], int argc)
 {
   if( !(argc == 1 && mrbc_type(v[1]) == MRBC_TT_STRING)) {
-    console_print("ArgumentError\n");	// raise?
+    mrbc_print("ArgumentError\n");	// raise?
     return;
   }
 
@@ -1223,7 +1223,6 @@ static void c_string_include(struct VM *vm, mrbc_value v[], int argc)
 
   CLASS("String")
   FILE("method_table_string.h")
-  FUNC("mrbc_init_class_string")
 
   METHOD( "new",	c_string_new )
   METHOD( "+",		c_string_add )

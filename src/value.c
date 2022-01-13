@@ -21,10 +21,12 @@
 /***** Local headers ********************************************************/
 #include "value.h"
 #include "class.h"
+#include "error.h"
 #include "c_string.h"
 #include "c_range.h"
 #include "c_array.h"
 #include "c_hash.h"
+#include "symbol.h"
 
 
 /***** Constant values ******************************************************/
@@ -36,19 +38,21 @@
 //================================================================
 /*! function table for object delete.
 
-  (note) need same order as mrb_vtype.
+  @note must be same order as mrbc_vtype.
+  @see mrbc_vtype in value.h
 */
 void (* const mrbc_delfunc[])(mrbc_value *) = {
-  mrbc_instance_delete,
-  mrbc_proc_delete,
-  mrbc_array_delete,
+  mrbc_instance_delete,		// MRBC_TT_OBJECT    = 8,
+  mrbc_proc_delete,		// MRBC_TT_PROC	     = 9,
+  mrbc_array_delete,		// MRBC_TT_ARRAY     = 10,
 #if MRBC_USE_STRING
-  mrbc_string_delete,
+  mrbc_string_delete,		// MRBC_TT_STRING    = 11,
 #else
   NULL,
 #endif
-  mrbc_range_delete,
-  mrbc_hash_delete,
+  mrbc_range_delete,		// MRBC_TT_RANGE     = 12,
+  mrbc_hash_delete,		// MRBC_TT_HASH	     = 13,
+  mrbc_exception_delete,	// MRBC_TT_EXCEPTION = 14,
 };
 
 
@@ -70,6 +74,10 @@ int mrbc_compare(const mrbc_value *v1, const mrbc_value *v2)
 #if MRBC_USE_FLOAT
   mrbc_float d1, d2;
 #endif
+
+  // to compare Symbols
+  const char *str1, *str2;
+  int diff, len, res;
 
   // if TT_XXX is different
   if( mrbc_type(*v1) != mrbc_type(*v2) ) {
@@ -103,8 +111,16 @@ int mrbc_compare(const mrbc_value *v1, const mrbc_value *v2)
     return 0;
 
   case MRBC_TT_INTEGER:
-  case MRBC_TT_SYMBOL:
     return mrbc_integer(*v1) - mrbc_integer(*v2);
+
+  case MRBC_TT_SYMBOL:
+    str1 = mrbc_symid_to_str(mrbc_symbol(*v1));
+    str2 = mrbc_symid_to_str(mrbc_symbol(*v2));
+    diff = strlen(str1) - strlen(str2);
+    len = diff < 0 ? strlen(str1) : strlen(str2);
+    res = memcmp(str1, str2, len);
+    if( res != 0 ) return res;
+    return diff;
 
 #if MRBC_USE_FLOAT
   case MRBC_TT_FLOAT:
@@ -143,6 +159,7 @@ int mrbc_compare(const mrbc_value *v1, const mrbc_value *v2)
 }
 
 
+#if defined(MRBC_ALLOC_VMID)
 //================================================================
 /*! clear vm id
 
@@ -151,6 +168,8 @@ int mrbc_compare(const mrbc_value *v1, const mrbc_value *v2)
 void mrbc_clear_vm_id(mrbc_value *v)
 {
   switch( mrbc_type(*v) ) {
+  case MRBC_TT_OBJECT:	mrbc_instance_clear_vm_id(v);	break;
+  case MRBC_TT_PROC:	mrbc_proc_clear_vm_id(v);	break;
   case MRBC_TT_ARRAY:	mrbc_array_clear_vm_id(v);	break;
 #if MRBC_USE_STRING
   case MRBC_TT_STRING:	mrbc_string_clear_vm_id(v);	break;
@@ -163,6 +182,7 @@ void mrbc_clear_vm_id(mrbc_value *v)
     break;
   }
 }
+#endif
 
 
 //================================================================

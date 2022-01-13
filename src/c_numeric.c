@@ -216,7 +216,7 @@ static void c_integer_to_s(struct VM *vm, mrbc_value v[], int argc)
     }
   }
 
-  mrbc_printf pf;
+  mrbc_printf_t pf;
   char buf[16];
   mrbc_printf_init( &pf, buf, sizeof(buf), NULL );
   pf.fmt.type = 'd';
@@ -233,7 +233,6 @@ static void c_integer_to_s(struct VM *vm, mrbc_value v[], int argc)
 
   CLASS("Integer")
   FILE("method_table_integer.h")
-  FUNC("mrbc_init_class_integer")
 
   METHOD( "[]",		c_integer_bitref )
   METHOD( "+@",		c_integer_positive )
@@ -341,7 +340,6 @@ static void c_float_to_s(struct VM *vm, mrbc_value v[], int argc)
 
   CLASS("Float")
   FILE("method_table_float.h")
-  FUNC("mrbc_init_class_float")
 
   METHOD( "+@",		c_float_positive )
   METHOD( "-@",		c_float_negative )

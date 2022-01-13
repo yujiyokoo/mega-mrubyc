@@ -170,7 +170,7 @@ static int add_index( uint16_t hash, const char *str )
 {
   // check overflow.
   if( sym_index_pos >= MAX_SYMBOLS_COUNT ) {
-    console_printf( "Overflow MAX_SYMBOLS_COUNT for '%s'\n", str );
+    mrbc_printf("Overflow MAX_SYMBOLS_COUNT for '%s'\n", str );	// raise?
     return -1;
   }
 
@@ -351,7 +351,6 @@ static void c_to_s(struct VM *vm, mrbc_value v[], int argc)
 
   CLASS("Symbol")
   FILE("method_table_symbol.h")
-  FUNC("mrbc_init_class_symbol")
 
   METHOD( "all_symbols", c_all_symbols )
 #if MRBC_USE_STRING
@@ -372,8 +371,8 @@ static void c_to_s(struct VM *vm, mrbc_value v[], int argc)
    (e.g.)
    total = MAX_SYMBOLS_COUNT;
    mrbc_symbol_statistics( &used );
-   console_printf("Symbol table: %d/%d %d%% used.\n",
-                   used, total, 100 * used / total );
+   mrbc_printf("Symbol table: %d/%d %d%% used.\n",
+		used, total, 100 * used / total );
 */
 void mrbc_symbol_statistics( int *total_used )
 {

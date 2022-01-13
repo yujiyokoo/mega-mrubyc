@@ -230,24 +230,19 @@ static void c_math_tanh(struct VM *vm, mrbc_value v[], int argc)
 //================================================================
 /*! initialize
 */
-mrbc_class *mrbc_init_class_math(struct VM *vm)
+void mrbc_init_class_math(void)
 {
-  mrbc_class *mrbc_init_class_math_sub(struct VM *vm);
-  mrbc_class *cls = mrbc_init_class_math_sub(vm);
-
   static mrbc_value e = mrbc_float_value(0, M_E);
-  mrbc_set_class_const( cls, MRBC_SYM(E), &e );
-  static mrbc_value pi = mrbc_float_value(0, M_PI);
-  mrbc_set_class_const( cls, MRBC_SYM(PI), &pi );
+  mrbc_set_class_const( MRBC_CLASS(Math), MRBC_SYM(E), &e );
 
-  return cls;
+  static mrbc_value pi = mrbc_float_value(0, M_PI);
+  mrbc_set_class_const( MRBC_CLASS(Math), MRBC_SYM(PI), &pi );
 }
 
 /* MRBC_AUTOGEN_METHOD_TABLE
 
   CLASS("Math")
   FILE("method_table_math.h")
-  FUNC("mrbc_init_class_math_sub")
 
   METHOD( "acos",	c_math_acos )
   METHOD( "acosh",	c_math_acosh )

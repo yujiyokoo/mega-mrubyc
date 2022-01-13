@@ -95,6 +95,10 @@ int mrbc_kv_init_handle(struct VM *vm, mrbc_kv_handle *kvh, int size)
     // Allocate data buffer.
     kvh->data = mrbc_alloc(vm, sizeof(mrbc_kv) * size);
     if( !kvh->data ) return -1;		// ENOMEM
+
+#if defined(MRBC_DEBUG)
+    memcpy( kvh->data->type, "KV", 2 );
+#endif
   }
 
   return 0;
@@ -128,6 +132,7 @@ void mrbc_kv_delete_data(mrbc_kv_handle *kvh)
 }
 
 
+#if defined(MRBC_ALLOC_VMID)
 //================================================================
 /*! clear vm_id
 
@@ -135,16 +140,19 @@ void mrbc_kv_delete_data(mrbc_kv_handle *kvh)
 */
 void mrbc_kv_clear_vm_id(mrbc_kv_handle *kvh)
 {
-  mrbc_set_vm_id( kvh, 0 );
   if( kvh->data_size == 0 ) return;
 
   mrbc_kv *p1 = kvh->data;
   const mrbc_kv *p2 = p1 + kvh->n_stored;
+
+  mrbc_set_vm_id( p1, 0 );
+
   while( p1 < p2 ) {
     mrbc_clear_vm_id(&p1->value);
     p1++;
   }
 }
+#endif
 
 
 //================================================================
@@ -164,7 +172,6 @@ int mrbc_kv_resize(mrbc_kv_handle *kvh, int size)
 
   return 0;
 }
-
 
 
 //================================================================
@@ -200,6 +207,10 @@ int mrbc_kv_set(mrbc_kv_handle *kvh, mrbc_sym sym_id, mrbc_value *set_val)
     kvh->data = mrbc_alloc(kvh->vm, sizeof(mrbc_kv) * MRBC_KV_SIZE_INIT);
     if( kvh->data == NULL ) return E_NOMEMORY_ERROR;	// ENOMEM
     kvh->data_size = MRBC_KV_SIZE_INIT;
+
+#if defined(MRBC_DEBUG)
+    memcpy( kvh->data->type, "KV", 2 );
+#endif
 
   // need resize?
   } else if( kvh->n_stored >= kvh->data_size ) {
@@ -256,6 +267,10 @@ int mrbc_kv_append(mrbc_kv_handle *kvh, mrbc_sym sym_id, mrbc_value *set_val)
     kvh->data = mrbc_alloc(kvh->vm, sizeof(mrbc_kv) * MRBC_KV_SIZE_INIT);
     if( kvh->data == NULL ) return E_NOMEMORY_ERROR;	// ENOMEM
     kvh->data_size = MRBC_KV_SIZE_INIT;
+
+#if defined(MRBC_DEBUG)
+    memcpy( kvh->data->type, "KV", 2 );
+#endif
 
   // need resize?
   } else if( kvh->n_stored >= kvh->data_size ) {

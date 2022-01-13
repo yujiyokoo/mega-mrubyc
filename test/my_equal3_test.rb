@@ -2,19 +2,19 @@
 
 class MyEqual3Test < MrubycTestCase
 
-  description "Fixnum Fixnum"
+  description "Integer Integer"
   def fixnum_fixnum_case
     assert_equal true,  1 === 1
     assert_equal false, 1 === 2
   end
 
-  description "Fixnum Float"
+  description "Integer Float"
   def fixnum_float_case
     assert_equal true,  1 === 1.0
     assert_equal false, 1 === 1.1
   end
 
-  description "Float Fixnum"
+  description "Float Integer"
   def float_fixnum_case
     assert_equal true,  1.0 === 1
     assert_equal false, 1.0 === 2

@@ -20,6 +20,7 @@
 #include "vm_config.h"
 #include "value.h"
 #include "keyvalue.h"
+#include "error.h"
 
 
 #ifdef __cplusplus
@@ -27,6 +28,9 @@ extern "C" {
 #endif
 /***** Constant values ******************************************************/
 /***** Macros ***************************************************************/
+#define MRBC_CLASS(cls)	((mrbc_class *)(&mrbc_class_##cls))
+
+
 /***** Typedefs *************************************************************/
 //================================================================
 /*! mruby/c class object.
@@ -88,7 +92,7 @@ typedef struct RProc mrb_proc;
 /*! Method management structure.
 */
 typedef struct RMethod {
-  uint8_t type;		// for debug
+  uint8_t type;		//!< M:OP_DEF or OP_ALIAS, m:mrblib or define_method()
   uint8_t c_func;	//!< 0:IREP, 1:C Func, 2:C Func (built-in)
   mrbc_sym sym_id;	//!< function names symbol ID
   union {
@@ -97,46 +101,53 @@ typedef struct RMethod {
   };
   union {
     struct RMethod *next;	//!< link to next method.
-    struct RClass *cls;		//!< for return value for mrbc_find_method.
+    struct RClass *cls;		//!< return value for mrbc_find_method.
   };
 } mrbc_method;
 
 
 /***** Global variables *****************************************************/
-extern struct RClass *mrbc_class_tbl[];
-#define mrbc_class_nil		mrbc_class_tbl[ MRBC_TT_NIL ]
-#define mrbc_class_false	mrbc_class_tbl[ MRBC_TT_FALSE ]
-#define mrbc_class_true		mrbc_class_tbl[ MRBC_TT_TRUE ]
-#define mrbc_class_integer	mrbc_class_tbl[ MRBC_TT_INTEGER ]
-#define mrbc_class_fixnum	mrbc_class_integer
-#define mrbc_class_float	mrbc_class_tbl[ MRBC_TT_FLOAT ]
-#define mrbc_class_symbol	mrbc_class_tbl[ MRBC_TT_SYMBOL ]
-#define mrbc_class_proc		mrbc_class_tbl[ MRBC_TT_PROC ]
-#define mrbc_class_array	mrbc_class_tbl[ MRBC_TT_ARRAY ]
-#define mrbc_class_string	mrbc_class_tbl[ MRBC_TT_STRING ]
-#define mrbc_class_range	mrbc_class_tbl[ MRBC_TT_RANGE ]
-#define mrbc_class_hash		mrbc_class_tbl[ MRBC_TT_HASH ]
-extern struct RClass *mrbc_class_object;
-extern struct RClass *mrbc_class_math;
-extern struct RClass *mrbc_class_exception;
-extern struct RClass *mrbc_class_standarderror;
-extern struct RClass *mrbc_class_runtimeerror;
-extern struct RClass *mrbc_class_zerodivisionerror;
-extern struct RClass *mrbc_class_argumenterror;
-extern struct RClass *mrbc_class_indexerror;
-extern struct RClass *mrbc_class_typeerror;
+extern struct RClass * const mrbc_class_tbl[];
+extern struct RBuiltinClass mrbc_class_Object;
+extern struct RBuiltinClass mrbc_class_NilClass;
+extern struct RBuiltinClass mrbc_class_FalseClass;
+extern struct RBuiltinClass mrbc_class_TrueClass;
+extern struct RBuiltinClass mrbc_class_Integer;
+extern struct RBuiltinClass mrbc_class_Float;
+extern struct RBuiltinClass mrbc_class_Symbol;
+extern struct RBuiltinClass mrbc_class_Proc;
+extern struct RBuiltinClass mrbc_class_Array;
+extern struct RBuiltinClass mrbc_class_String;
+extern struct RBuiltinClass mrbc_class_Range;
+extern struct RBuiltinClass mrbc_class_Hash;
+extern struct RBuiltinClass mrbc_class_Math;
+extern struct RBuiltinClass mrbc_class_Exception;
+extern struct RClass mrbc_class_NoMemoryError;
+extern struct RClass mrbc_class_StandardError;
+extern struct RClass mrbc_class_ArgumentError;
+extern struct RClass mrbc_class_IndexError;
+extern struct RClass mrbc_class_NameError;
+extern struct RClass mrbc_class_NoMethodError;
+extern struct RClass mrbc_class_RangeError;
+extern struct RClass mrbc_class_RuntimeError;
+extern struct RClass mrbc_class_TypeError;
+extern struct RClass mrbc_class_ZeroDivisionError;
+
+// for old version compatibility.
+#define mrbc_class_object ((struct RClass*)(&mrbc_class_Object))
 
 
 /***** Function prototypes **************************************************/
 mrbc_class *mrbc_define_class(struct VM *vm, const char *name, mrbc_class *super);
-mrbc_class *mrbc_define_builtin_class(const char *name, mrbc_class *super, const mrbc_sym *method_symbols, const mrbc_func_t *method_functions, int num_builtin_method);
 void mrbc_define_method(struct VM *vm, mrbc_class *cls, const char *name, mrbc_func_t cfunc);
 mrbc_value mrbc_instance_new(struct VM *vm, mrbc_class *cls, int size);
 void mrbc_instance_delete(mrbc_value *v);
-void mrbc_instance_setiv(mrbc_object *obj, mrbc_sym sym_id, mrbc_value *v);
-mrbc_value mrbc_instance_getiv(mrbc_object *obj, mrbc_sym sym_id);
+void mrbc_instance_setiv(mrbc_value *obj, mrbc_sym sym_id, mrbc_value *v);
+mrbc_value mrbc_instance_getiv(mrbc_value *obj, mrbc_sym sym_id);
+void mrbc_instance_clear_vm_id(mrbc_value *v);
 mrbc_value mrbc_proc_new(struct VM *vm, void *irep);
 void mrbc_proc_delete(mrbc_value *val);
+void mrbc_proc_clear_vm_id(mrbc_value *v);
 int mrbc_obj_is_kind_of(const mrbc_value *obj, const mrb_class *cls);
 mrbc_method *mrbc_find_method(mrbc_method *r_method, mrbc_class *cls, mrbc_sym sym_id);
 mrbc_class *mrbc_get_class_by_name(const char *name);
@@ -153,15 +164,20 @@ void mrbc_init_class(void);
   @param  obj	pointer to object
   @return	pointer to mrbc_class
 */
-static inline mrbc_class *find_class_by_object(const mrbc_object *obj)
+static inline mrbc_class *find_class_by_object(const mrbc_value *obj)
 {
-  assert( obj->tt >= MRBC_TT_MINVAL );
-  assert( obj->tt <= MRBC_TT_MAXVAL );
+  assert( mrbc_type(*obj) >= 0 );
+  assert( mrbc_type(*obj) <= MRBC_TT_MAXVAL );
 
   mrbc_class *cls = mrbc_class_tbl[ obj->tt ];
   if( !cls ) {
-    // obj->tt is MRBC_TT_OBJECT or MRBC_TT_CLASS
-    cls = (obj->tt == MRBC_TT_OBJECT) ? obj->instance->cls : obj->cls;
+    switch( mrbc_type(*obj) ) {
+    case MRBC_TT_CLASS:		cls = obj->cls;			break;
+    case MRBC_TT_OBJECT:	cls = obj->instance->cls;	break;
+    case MRBC_TT_EXCEPTION:	cls = obj->exception->cls;	break;
+    default:
+      assert(!"Invalid value type.");
+    }
   }
 
   return cls;

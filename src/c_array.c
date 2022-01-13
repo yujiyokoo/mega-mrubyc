@@ -107,6 +107,7 @@ void mrbc_array_delete(mrbc_value *ary)
 }
 
 
+#if defined(MRBC_ALLOC_VMID)
 //================================================================
 /*! clear vm_id
 
@@ -124,6 +125,7 @@ void mrbc_array_clear_vm_id(mrbc_value *ary)
     mrbc_clear_vm_id(p1++);
   }
 }
+#endif
 
 
 //================================================================
@@ -506,7 +508,7 @@ static void c_array_new(struct VM *vm, mrbc_value v[], int argc)
   /*
     other case
   */
-  console_print( "ArgumentError\n" );	// raise?
+  mrbc_print("ArgumentError\n");	// raise?
 }
 
 
@@ -516,7 +518,7 @@ static void c_array_new(struct VM *vm, mrbc_value v[], int argc)
 static void c_array_add(struct VM *vm, mrbc_value v[], int argc)
 {
   if( mrb_type(v[1]) != MRBC_TT_ARRAY ) {
-    console_print( "TypeError\n" );	// raise?
+    mrbc_print("TypeError\n");	// raise?
     return;
   }
 
@@ -606,7 +608,7 @@ static void c_array_get(struct VM *vm, mrbc_value v[], int argc)
   /*
     other case
   */
-  console_print( "Not support such case in Array#[].\n" );
+  mrbc_print("Not support such case in Array#[].\n");
   return;
 
  RETURN_NIL:
@@ -638,7 +640,7 @@ static void c_array_set(struct VM *vm, mrbc_value v[], int argc)
   /*
     other case
   */
-  console_print( "Not support such case in Array#[].\n" );
+  mrbc_print("Not support such case in Array#[].\n");
 }
 
 
@@ -660,7 +662,7 @@ static void c_array_delete_at(struct VM *vm, mrbc_value v[], int argc)
     mrbc_value val = mrbc_array_remove(v, mrbc_integer(v[1]));
     SET_RETURN(val);
   } else {
-    console_print( "ArgumentError\n" );	// raise?
+    mrbc_print("ArgumentError\n");	// raise?
   }
 }
 
@@ -780,7 +782,7 @@ static void c_array_pop(struct VM *vm, mrbc_value v[], int argc)
   /*
     other case
   */
-  console_print( "Not support such case in Array#pop.\n" );
+  mrbc_print("Not support such case in Array#pop.\n");
 }
 
 
@@ -818,7 +820,7 @@ static void c_array_shift(struct VM *vm, mrbc_value v[], int argc)
   /*
     other case
   */
-  console_print( "Not support such case in Array#shift.\n" );
+  mrbc_print("Not support such case in Array#shift.\n");
 }
 
 
@@ -972,7 +974,6 @@ static void c_array_join(struct VM *vm, mrbc_value v[], int argc)
 
   CLASS("Array")
   FILE("method_table_array.h")
-  FUNC("mrbc_init_class_array")
 
   METHOD( "new",	c_array_new )
   METHOD( "+",		c_array_add )

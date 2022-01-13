@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class FixnumTest < MrubycTestCase
+class IntegerTest < MrubycTestCase
 
   description "abs"
   def abs_case

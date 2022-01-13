@@ -35,7 +35,7 @@ extern "C" {
 */
 typedef struct IREP {
 #if defined(MRBC_DEBUG)
-  uint8_t type[2];		//!< # for debug.
+  uint8_t type[2];		//!< set "RP" for debug.
 #endif
 
   uint16_t nlocals;		//!< # of local variables
@@ -47,7 +47,7 @@ typedef struct IREP {
   uint16_t slen;		//!< # of symbols
   uint16_t ofs_ireps;		//!< offset of data->tbl_ireps. (32bit aligned)
 
-  const uint8_t *code;		//!< pointer to byte-code in RITE binary
+  const uint8_t *inst;		//!< pointer to instruction in RITE binary
   const uint8_t *pool;		//!< pointer to pool in RITE binary
 
   uint8_t data[];		//!< variable data. (see load.c)
@@ -88,16 +88,6 @@ typedef struct IREP mrb_irep;
 
 //================================================================
 /*!@brief
-  Catch Handler Type
-*/
-typedef enum mrbc_catch_type {
-  MRB_CATCH_RESCUE = 0,
-  MRB_CATCH_ENSURE = 1,
-} mrbc_catch_type;
-
-
-//================================================================
-/*!@brief
   IREP Catch Handler
 */
 typedef struct IREP_CATCH_HANDLER {
@@ -114,9 +104,9 @@ typedef struct IREP_CATCH_HANDLER {
 */
 typedef struct CALLINFO {
   struct CALLINFO *prev;	//!< previous linked list.
-  mrbc_irep *pc_irep;		//!< copy from mrbc_vm.
+  const mrbc_irep *cur_irep;	//!< copy from mrbc_vm.
   const uint8_t *inst;		//!< copy from mrbc_vm.
-  mrbc_value *current_regs;	//!< copy from mrbc_vm.
+  mrbc_value *cur_regs;		//!< copy from mrbc_vm.
   mrbc_class *target_class;	//!< copy from mrbc_vm.
   mrbc_class *own_class;	//!< class that owns method.
   mrbc_sym method_id;		//!< called method ID.
@@ -131,28 +121,21 @@ typedef struct CALLINFO mrb_callinfo;
   Virtual Machine
 */
 typedef struct VM {
-  mrbc_irep *irep;
+#if defined(MRBC_DEBUG)
+  char type[2];			// set "VM" for debug
+#endif
+  uint8_t vm_id;		//!< vm_id : 1..MAX_VM_COUNT
 
-  uint8_t vm_id;	// vm_id : 1..n
-  const uint8_t *mrb;	// bytecode
-
-  mrbc_irep *pc_irep;	// PC
-  const uint8_t *inst;	// instruction
+  mrbc_irep       *top_irep;	//!< IREP tree top.
+  const mrbc_irep *cur_irep;	//!< IREP currently running.
+  const uint8_t   *inst;	//!< instruction pointer
 
   mrbc_value    regs[MAX_REGS_SIZE];
-  mrbc_value    *current_regs;
+  mrbc_value    *cur_regs;
   mrbc_callinfo *callinfo_tail;
+  mrbc_class    *target_class;
 
-  mrbc_class *target_class;
-
-#ifdef MRBC_DEBUG
-  uint8_t flag_debug_mode;
-#endif
-
-  mrbc_value exc;
-  mrbc_value exc_message;
-
-  int32_t error_code;
+  mrbc_value exception;		//!< Raised exception.
 
   volatile int8_t flag_preemption;
   int8_t flag_need_memfree;
@@ -164,6 +147,7 @@ typedef struct VM mrb_vm;
 /***** Global variables *****************************************************/
 /***** Function prototypes **************************************************/
 void mrbc_cleanup_vm(void);
+mrbc_sym mrbc_get_callee_symid(struct VM *vm);
 const char *mrbc_get_callee_name(struct VM *vm);
 mrbc_callinfo *mrbc_push_callinfo(struct VM *vm, mrbc_sym method_id, int reg_offset, int n_args);
 void mrbc_pop_callinfo(struct VM *vm);

@@ -30,6 +30,7 @@ extern "C" {
 /***** Typedefs *************************************************************/
 // pre define of some struct
 struct VM;
+struct RClass;
 struct RObject;
 struct IREP;
 
@@ -55,13 +56,14 @@ typedef void (*mrbc_func_t)(struct VM *vm, struct RObject *v, int argc);
 
 
 //================================================================
-/*!@brief
-  define the value type.
+/*! define the value type.
+
+  @note  Must be same order as mrbc_class_tbl[], mrbc_delfunc[].
 */
 typedef enum {
   /* internal use */
-  MRBC_TT_BREAK      = -3,  // raise-break
-  MRBC_TT_EXCEPTION  = -2,  // raise-exception
+  MRBC_TT_JMPUW      = -3,  // use in OP_JMPUW
+  MRBC_TT_RETBLK     = -2,  // use in OP_RETURN, OP_RETURN_BLK, OP_BREAK
   MRBC_TT_HANDLE     = -1,
 
   /* primitive */
@@ -77,21 +79,20 @@ typedef enum {
   MRBC_TT_CLASS	  = 7,
 
   /* non-primitive */
-  MRBC_TT_OBJECT  = 8,	// (note) inc/dec ref threshold.
-  MRBC_TT_PROC	  = 9,	// and must be same order as mrbc_delfunc[].
-  MRBC_TT_ARRAY	  = 10,
-  MRBC_TT_STRING  = 11,
-  MRBC_TT_RANGE	  = 12,
-  MRBC_TT_HASH	  = 13,
+  MRBC_TT_OBJECT    = 8,	// (note) inc/dec ref threshold.
+  MRBC_TT_PROC	    = 9,
+  MRBC_TT_ARRAY	    = 10,
+  MRBC_TT_STRING    = 11,
+  MRBC_TT_RANGE	    = 12,
+  MRBC_TT_HASH	    = 13,
+  MRBC_TT_EXCEPTION = 14,
 } mrbc_vtype;
 #define	MRBC_TT_INC_DEC_THRESHOLD MRBC_TT_OBJECT
-#define	MRBC_TT_MINVAL MRBC_TT_BREAK
-#define	MRBC_TT_MAXVAL MRBC_TT_HASH
+#define	MRBC_TT_MAXVAL MRBC_TT_EXCEPTION
 
 
 //================================================================
-/*!@brief
-  define the error code. (BETA TEST)
+/*! define the error code. (BETA TEST)
 */
 typedef enum {
   E_NOMEMORY_ERROR = 1,
@@ -115,10 +116,8 @@ typedef enum {
 } mrbc_error_code;
 
 
-
 //================================================================
-/*!@brief
-  Define the object structure having reference counter.
+/*! Define the object structure having reference counter.
 */
 #if defined(MRBC_DEBUG)
 #define MRBC_OBJECT_HEADER  uint8_t type[2]; uint16_t ref_count;
@@ -131,10 +130,8 @@ struct RBasic {
 };
 
 
-
 //================================================================
-/*!@brief
-  mruby/c value object.
+/*! mruby/c value object.
 */
 struct RObject {
   mrbc_vtype tt : 8;
@@ -151,7 +148,7 @@ struct RObject {
     struct RString *string;	// MRBC_TT_STRING
     struct RRange *range;	// MRBC_TT_RANGE
     struct RHash *hash;		// MRBC_TT_HASH
-    struct RClass *exception;   // MRBC_TT_EXCEPTION, MRBC_TT_BREAK
+    struct RException *exception; // MRBC_TT_EXCEPTION
     void *handle;		// internal use only.
     const uint8_t *jmpuw;       // jump point from break
   };

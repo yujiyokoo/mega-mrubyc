@@ -543,7 +543,6 @@ static void c_hash_inspect(struct VM *vm, mrbc_value v[], int argc)
 
   CLASS("Hash")
   FILE("method_table_hash.h")
-  FUNC("mrbc_init_class_hash")
 
   METHOD( "new",	c_hash_new )
   METHOD( "[]",		c_hash_get )
