@@ -139,7 +139,7 @@ typedef struct VM {
 
   volatile int8_t flag_preemption;
   int8_t flag_need_memfree;
-
+  int8_t flag_permanence;
 } mrbc_vm;
 typedef struct VM mrb_vm;
 

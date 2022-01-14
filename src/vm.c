@@ -1425,7 +1425,11 @@ static inline int op_return( mrbc_vm *vm, mrbc_value *regs )
  RETURN:
   // return without anything if top level.
   if( vm->callinfo_tail == NULL ) {
-    vm->flag_preemption = 1;
+    if ( vm->flag_permanence ) {
+      mrbc_incref(&regs[a]);
+    } else {
+      vm->flag_preemption = 1;
+    }
     return -1;
   }
 
