@@ -79,6 +79,17 @@ class ArrayTest < MrubycTestCase
     assert_equal [99,88,nil,77], a
     a[-2] = 66
     assert_equal [99,88,66,77], a
+
+    assert_equal 44, a[6,50] = 44
+    assert_equal [99,88,66,77,nil,nil,44], a
+    a[2,1] = 77
+    assert_equal [99,88,77,77,nil,nil,44], a
+    a[3,0] = 66
+    assert_equal [99,88,77,66,77,nil,nil,44], a
+    a[4,3] = 55
+    assert_equal [99,88,77,66,55,44], a
+    a[4,10] = 44
+    assert_equal [99,88,77,66,44], a
   end
 
   description "getter"
@@ -152,6 +163,12 @@ class ArrayTest < MrubycTestCase
     assert_equal nil, a.pop()
     assert_equal [], a
 
+    a = [1,2,3,4]
+    assert_equal [2,3,4], a.pop(3)
+    assert_equal [1], a
+    assert_equal [1], a.pop(2)
+    assert_equal [], a
+
     a = []
     assert_equal [1], a << 1
     assert_equal [1,2], a << 2
@@ -170,6 +187,12 @@ class ArrayTest < MrubycTestCase
     assert_equal 1, a.shift()
     assert_equal [], a
     assert_equal nil, a.shift()
+    assert_equal [], a
+
+    a = [1,2,3,4]
+    assert_equal [1,2,3], a.shift(3)
+    assert_equal [4], a
+    assert_equal [4], a.shift(2)
     assert_equal [], a
   end
 
