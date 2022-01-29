@@ -31,10 +31,11 @@
  */
 static void c_integer_bitref(struct VM *vm, mrbc_value v[], int argc)
 {
-  if( 0 <= mrbc_integer(v[1]) && mrbc_integer(v[1]) < 32 ) {
-    SET_INT_RETURN( (mrbc_integer(v[0]) & (1 << mrbc_integer(v[1]))) ? 1 : 0 );
-  } else {
+  if( mrbc_integer(v[1]) < 0 ) {
     SET_INT_RETURN( 0 );
+  } else {
+    mrbc_int mask = (argc == 1) ? 1 : (1 << mrbc_fixnum(v[2])) - 1;
+    SET_INT_RETURN( (mrbc_fixnum(v[0]) >> mrbc_fixnum(v[1])) & mask );
   }
 }
 
