@@ -98,8 +98,17 @@ mrbc_class * mrbc_define_class(struct VM *vm, const char *name, mrbc_class *supe
   cls->super = super ? super : mrbc_class_object;
   cls->method_link = 0;
 
-  // register to global constant.
-  mrbc_set_const( sym_id, &(mrb_value){.tt = MRBC_TT_CLASS, .cls = cls} );
+  if( vm->callinfo_tail != NULL ) {
+    // For nested class
+    //   so, not in TOPLEVEL, register to class constant
+    assert(vm->target_class);
+    mrbc_set_class_const(vm->target_class, sym_id,
+			 &(mrbc_value){.tt = MRBC_TT_CLASS, .cls = cls});
+  } else {
+    // register to global constant.
+    mrbc_set_const( sym_id, &(mrbc_value){.tt = MRBC_TT_CLASS, .cls = cls} );
+  }
+
   return cls;
 }
 
