@@ -98,7 +98,7 @@ mrbc_class * mrbc_define_class(struct VM *vm, const char *name, mrbc_class *supe
   cls->super = super ? super : mrbc_class_object;
   cls->method_link = 0;
 
-  if( vm->callinfo_tail != NULL ) {
+  if( vm && vm->callinfo_tail != NULL ) {
     // For nested class
     //   so, not in TOPLEVEL, register to class constant
     assert(vm->target_class);
