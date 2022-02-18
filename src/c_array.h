@@ -3,8 +3,8 @@
   mruby/c Array class
 
   <pre>
-  Copyright (C) 2015-2021 Kyushu Institute of Technology.
-  Copyright (C) 2015-2021 Shimane IT Open-Innovation Center.
+  Copyright (C) 2015-2022 Kyushu Institute of Technology.
+  Copyright (C) 2015-2022 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
 
@@ -42,15 +42,17 @@ int mrbc_array_resize(mrbc_value *ary, int size);
 int mrbc_array_set(mrbc_value *ary, int idx, mrbc_value *set_val);
 mrbc_value mrbc_array_get(const mrbc_value *ary, int idx);
 int mrbc_array_push(mrbc_value *ary, mrbc_value *set_val);
-mrbc_value mrbc_array_pop(struct VM *vm, mrbc_value *ary, uint16_t len);
+int mrbc_array_push_m(mrbc_value *ary, mrbc_value *set_val);
+mrbc_value mrbc_array_pop(mrbc_value *ary);
 int mrbc_array_unshift(mrbc_value *ary, mrbc_value *set_val);
-mrbc_value mrbc_array_shift(struct VM *vm, mrbc_value *ary, uint16_t len );
+mrbc_value mrbc_array_shift(mrbc_value *ary);
 int mrbc_array_insert(mrbc_value *ary, int idx, mrbc_value *set_val);
 mrbc_value mrbc_array_remove(mrbc_value *ary, int idx);
 void mrbc_array_clear(mrbc_value *ary);
 int mrbc_array_compare(const mrbc_value *v1, const mrbc_value *v2);
 void mrbc_array_minmax(mrbc_value *ary, mrbc_value **pp_min_value, mrbc_value **pp_max_value);
 mrbc_value mrbc_array_dup(struct VM *vm, const mrbc_value *ary);
+mrbc_value mrbc_array_divide(struct VM *vm, mrbc_value *src, int pos);
 
 
 //================================================================

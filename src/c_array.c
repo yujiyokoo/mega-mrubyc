@@ -3,8 +3,8 @@
   mruby/c Array class
 
   <pre>
-  Copyright (C) 2015-2021 Kyushu Institute of Technology.
-  Copyright (C) 2015-2021 Shimane IT Open-Innovation Center.
+  Copyright (C) 2015-2022 Kyushu Institute of Technology.
+  Copyright (C) 2015-2022 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
 
@@ -36,6 +36,7 @@
   --[name]-------------[arg]---[ret]-------------------------------------------
     mrbc_array_set	*T	int
     mrbc_array_push	*T	int
+    mrbc_array_push_m	*T	int
     mrbc_array_unshift	*T	int
     mrbc_array_insert	*T	int
 
@@ -52,6 +53,7 @@
     mrbc_array_compare
     mrbc_array_minmax
     mrbc_array_dup
+    mrbc_array_divide
 */
 
 
@@ -231,36 +233,43 @@ int mrbc_array_push(mrbc_value *ary, mrbc_value *set_val)
 
 
 //================================================================
+/*! push multiple data to tail
+
+  @param  ary		pointer to target value
+  @param  set_val	set value (array)
+  @return		mrbc_error_code
+*/
+int mrbc_array_push_m(mrbc_value *ary, mrbc_value *set_val)
+{
+  mrbc_array *ha_d = ary->array;
+  mrbc_array *ha_s = set_val->array;
+  int new_size = ha_d->n_stored + ha_s->n_stored;
+
+  if( new_size > ha_d->data_size ) {
+    if( mrbc_array_resize(ary, new_size) != 0 )
+      return E_NOMEMORY_ERROR;		// ENOMEM
+  }
+
+  memcpy( &ha_d->data[ha_d->n_stored], ha_s->data,
+	  sizeof(mrbc_value) * ha_s->n_stored );
+  ha_d->n_stored += ha_s->n_stored;
+
+  return 0;
+}
+
+
+//================================================================
 /*! pop a data from tail.
 
   @param  ary		pointer to target value
   @return		tail data or Nil
 */
-mrbc_value mrbc_array_pop(struct VM *vm, mrbc_value *ary, uint16_t len)
+mrbc_value mrbc_array_pop(mrbc_value *ary)
 {
   mrbc_array *h = ary->array;
 
-  if ( len == 1 ){
-    if( h->n_stored <= 0 ) return mrbc_nil_value();
-    return h->data[--h->n_stored];
-
-  } else if ( len < 0 ) {
-    return mrbc_nil_value(); // raise ArgumentError?
-
-  } else {
-
-    if( len > h->n_stored ) len = h->n_stored;
-
-    mrbc_value arr = mrbc_array_new(vm, len);
-    mrbc_value *p = arr.array->data;
-
-    uint16_t start = h->n_stored - len;
-    memmove(p, &h->data[start], sizeof(mrbc_value) * len );
-
-    h->n_stored -= len;
-    arr.array->n_stored = len;
-    return arr;
-  }
+  if( h->n_stored <= 0 ) return mrbc_nil_value();
+  return h->data[--h->n_stored];
 }
 
 
@@ -283,32 +292,16 @@ int mrbc_array_unshift(mrbc_value *ary, mrbc_value *set_val)
   @param  ary		pointer to target value
   @return		first data or Nil
 */
-mrbc_value mrbc_array_shift(struct VM *vm, mrbc_value *ary, uint16_t len)
+mrbc_value mrbc_array_shift(mrbc_value *ary)
 {
   mrbc_array *h = ary->array;
 
-  if ( len == 1 ) {
-    if( h->n_stored <= 0 ) return mrbc_nil_value();
+  if( h->n_stored <= 0 ) return mrbc_nil_value();
 
-    mrbc_value ret = h->data[0];
-    memmove(h->data, h->data+1, sizeof(mrbc_value) * --h->n_stored);
-    return ret;
+  mrbc_value ret = h->data[0];
+  memmove(h->data, h->data+1, sizeof(mrbc_value) * --h->n_stored);
 
-  } else if ( len < 0 ) {
-    return mrbc_nil_value(); // raise ArgumentError?
-
-  } else {
-
-    if( len > h->n_stored ) len = h->n_stored;
-
-    mrbc_value arr = mrbc_array_new(vm, len);
-    memmove(arr.array->data, h->data, sizeof(mrbc_value) * len );
-    memmove(h->data, h->data+len, sizeof(mrbc_value) * len );
-
-    h->n_stored -= len;
-    arr.array->n_stored = len;
-    return arr;
-  }
+  return ret;
 }
 
 
@@ -493,6 +486,39 @@ mrbc_value mrbc_array_dup(struct VM *vm, const mrbc_value *ary)
 
 
 //================================================================
+/*! divide into two parts
+
+  @param  vm	pointer to VM.
+  @param  src	source
+  @oaram  pos	divide position
+  @return	divided array
+  @note
+    src = [0,1,2,3]
+    ret = divide(src, 2)
+    src = [0,1], ret = [2,3]
+*/
+mrbc_value mrbc_array_divide(struct VM *vm, mrbc_value *src, int pos)
+{
+  mrbc_array *ha_s = src->array;
+  if( pos < 0 ) pos = 0;
+  int new_size = ha_s->n_stored - pos;
+  if( new_size < 0 ) new_size = 0;
+  int remain_size = ha_s->n_stored - new_size;
+
+  mrbc_value ret = mrbc_array_new(vm, new_size);
+  if( ret.array == NULL ) return ret;		// ENOMEM
+  mrbc_array *ha_r = ret.array;
+
+  memcpy( ha_r->data, ha_s->data + remain_size, sizeof(mrbc_value) * new_size );
+  ha_s->n_stored = remain_size;
+  mrbc_array_resize( src, remain_size );
+  ha_r->n_stored = new_size;
+
+  return ret;
+}
+
+
+//================================================================
 /*! method new
 */
 static void c_array_new(struct VM *vm, mrbc_value v[], int argc)
@@ -669,52 +695,44 @@ static void c_array_set(struct VM *vm, mrbc_value v[], int argc)
     in case of self[start, length] = val
   */
   if( argc == 3 && mrbc_type(v[1]) == MRBC_TT_INTEGER && mrbc_type(v[2]) == MRBC_TT_INTEGER ) {
-    uint16_t size = mrbc_array_size(v);
-    mrbc_int start = v[1].i;
-    mrbc_int len = v[2].i;
+    int pos = mrbc_integer(v[1]);
+    int len = mrbc_integer(v[2]);
 
-    // case 1: start is larger than size
-    // just ignore length
-    if ( start >= size ) {
-      mrbc_array_set(v, start, &v[3]);	// raise? IndexError or ENOMEM
-      v[3].tt = MRBC_TT_EMPTY;
-      return;
+    if( pos < 0 ) {
+      pos = 0;
+    } else if( pos > v[0].array->n_stored ) {
+      mrbc_array_set( &v[0], pos-1, &mrbc_nil_value() );
+      len = 0;
+    }
+    if( len < 0 ) len = 0;
+    if( pos+len > v[0].array->n_stored ) {
+      len = v[0].array->n_stored - pos;
     }
 
-    // case 2: start is smaller than size, length is 1
-    // just replace
-    if ( start < size && len == 1 ) {
-      mrbc_array_set(v, start, &v[3]);	// raise? IndexError or ENOMEM
-      v[3].tt = MRBC_TT_EMPTY;
-      return;
+    // split 2 part
+    mrbc_value v1 = mrbc_array_divide(vm, &v[0], pos+len);
+    mrbc_array *ha0 = v[0].array;
+
+    // delete data from tail.
+    int i;
+    for( i = 0; i < len; i++ ) {
+      mrbc_decref( &ha0->data[--ha0->n_stored] );
     }
 
-    // case 3: start is smaller than size, length is 0
-    // just insert
-    if ( start < size && len == 0 ) {
-      mrbc_array_insert(v, start, &v[3]);	// raise? IndexError or ENOMEM
-      v[3].tt = MRBC_TT_EMPTY;
-      return;
-    }
-
-    // case 4: start is smaller than size, length is >= size-start
-    if ( start < size && len >= size-start ) {
-      mrbc_array_set(v, start, &v[3]);	// raise? IndexError or ENOMEM
-      v->array->n_stored = start + 1;
-
-      v[3].tt = MRBC_TT_EMPTY;
-      return;
-
+    // append data
+    if( v[3].tt == MRBC_TT_ARRAY ) {
+      mrbc_array_push_m(&v[0], &v[3]);
+      for( i = 0; i < v[3].array->n_stored; i++ ) {
+	mrbc_incref( &v[3].array->data[i] );
+      }
     } else {
-    // case 5: start is smaller than index, length is < size-start
-      mrbc_array_set(v, start, &v[3]);	// raise? IndexError or ENOMEM
-      mrbc_value *p = v->array->data;
-      memmove(p+start+1, p+start+len, sizeof(mrbc_value) * (size-start-len));
-      v->array->n_stored -= len-1;
-
+      mrbc_array_push(&v[0], &v[3]);
       v[3].tt = MRBC_TT_EMPTY;
-      return;
     }
+
+    mrbc_array_push_m(&v[0], &v1);
+    mrbc_array_delete_handle( &v1 );
+    return;
   }
 
   /*
@@ -847,7 +865,7 @@ static void c_array_pop(struct VM *vm, mrbc_value v[], int argc)
     in case of pop() -> object | nil
   */
   if( argc == 0 ) {
-    mrbc_value val = mrbc_array_pop(vm, v, 1);
+    mrbc_value val = mrbc_array_pop(v);
     SET_RETURN(val);
     return;
   }
@@ -856,15 +874,14 @@ static void c_array_pop(struct VM *vm, mrbc_value v[], int argc)
     in case of pop(n) -> Array
   */
   if( argc == 1 && mrbc_type(v[1]) == MRBC_TT_INTEGER ) {
-    mrbc_value val = mrbc_array_pop(vm, v, v[1].i);
+    int pos = mrbc_array_size(&v[0]) - v[1].i;
+    mrbc_value val = mrbc_array_divide(vm, &v[0], pos);
     SET_RETURN(val);
     return;
   }
 
-  /*
-    other case
-  */
-  mrbc_print("Not support such case in Array#pop.\n");
+  // Argument Error. raise?
+  mrbc_print("ArgumentError\n");
 }
 
 
@@ -887,7 +904,7 @@ static void c_array_shift(struct VM *vm, mrbc_value v[], int argc)
     in case of pop() -> object | nil
   */
   if( argc == 0 ) {
-    mrbc_value val = mrbc_array_shift(vm, v, 1);
+    mrbc_value val = mrbc_array_shift(v);
     SET_RETURN(val);
     return;
   }
@@ -896,15 +913,24 @@ static void c_array_shift(struct VM *vm, mrbc_value v[], int argc)
     in case of pop(n) -> Array
   */
   if( argc == 1 && mrbc_type(v[1]) == MRBC_TT_INTEGER ) {
-    mrbc_value val = mrbc_array_shift(vm, v, v[1].i);
+    mrbc_value val = mrbc_array_divide(vm, &v[0], v[1].i);
+
+    // swap v[0] and val
+    mrbc_array tmp = *v[0].array;
+    v[0].array->data_size = val.array->data_size;
+    v[0].array->n_stored = val.array->n_stored;
+    v[0].array->data = val.array->data;
+
+    val.array->data_size = tmp.data_size;
+    val.array->n_stored = tmp.n_stored;
+    val.array->data = tmp.data;
+
     SET_RETURN(val);
     return;
   }
 
-  /*
-    other case
-  */
-  mrbc_print("Not support such case in Array#shift.\n");
+  // Argument Error. raise?
+  mrbc_print("ArgumentError\n");
 }
 
 
