@@ -3,8 +3,8 @@
   mruby bytecode executor.
 
   <pre>
-  Copyright (C) 2015-2021 Kyushu Institute of Technology.
-  Copyright (C) 2015-2021 Shimane IT Open-Innovation Center.
+  Copyright (C) 2015-2022 Kyushu Institute of Technology.
+  Copyright (C) 2015-2022 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
 
@@ -2358,6 +2358,7 @@ static inline int op_hash( mrbc_vm *vm, mrbc_value *regs )
   mrbc_value value = mrbc_hash_new(vm, b);
   if( value.hash == NULL ) return -1;   // ENOMEM
 
+  // note: Do not detect duplicate keys.
   b *= 2;
   memcpy( value.hash->data, &regs[a], sizeof(mrbc_value) * b );
   memset( &regs[a], 0, sizeof(mrbc_value) * b );
@@ -2365,6 +2366,35 @@ static inline int op_hash( mrbc_vm *vm, mrbc_value *regs )
 
   mrbc_decref(&regs[a]);
   regs[a] = value;
+
+  return 0;
+}
+
+
+//================================================================
+/*! OP_HASHADD
+
+  R(a) = hash_push(R(a),R(a+1)..R(a+b*2))
+
+  @param  vm    pointer of VM.
+  @param  regs  pointer to regs
+  @retval 0  No error.
+*/
+static inline int op_hashadd( mrbc_vm *vm, mrbc_value *regs )
+{
+  FETCH_BB();
+
+  int sz1 = mrbc_array_size(&regs[a]);
+  int sz2 = b * 2;
+
+  int ret = mrbc_array_resize(&regs[a], sz1 + sz2);
+  if( ret != 0 ) return -1;	// ENOMEM ?
+
+  // data copy.
+  // note: Do not detect duplicate keys.
+  memcpy( regs[a].hash->data + sz1, &regs[a+1], sizeof(mrbc_value) * sz2 );
+  memset( &regs[a+1], 0, sizeof(mrbc_value) * sz2 );
+  regs[a].hash->n_stored = sz1 + sz2;
 
   return 0;
 }
@@ -2979,7 +3009,7 @@ int mrbc_vm_run( struct VM *vm )
       case OP_STRING16:   ret = op_string16  (vm, regs); break;
       case OP_STRCAT:     ret = op_strcat    (vm, regs); break;
       case OP_HASH:       ret = op_hash      (vm, regs); break;
-      case OP_HASHADD:    ret = op_dummy_BB  (vm, regs); break;
+      case OP_HASHADD:    ret = op_hashadd   (vm, regs); break;
       case OP_HASHCAT:    ret = op_dummy_B   (vm, regs); break;
       case OP_LAMBDA:     ret = op_dummy_BB  (vm, regs); break;
       case OP_BLOCK:      // fall through
