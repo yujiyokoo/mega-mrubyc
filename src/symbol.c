@@ -309,7 +309,7 @@ mrbc_value mrbc_symbol_new(struct VM *vm, const char *str)
 //================================================================
 /*! (method) all_symbols
 */
-static void c_all_symbols(struct VM *vm, mrbc_value v[], int argc)
+static void c_symbol_all_symbols(struct VM *vm, mrbc_value v[], int argc)
 {
   mrbc_value ret = mrbc_array_new(vm, sym_index_pos);
 
@@ -329,7 +329,7 @@ static void c_all_symbols(struct VM *vm, mrbc_value v[], int argc)
 //================================================================
 /*! (method) inspect
 */
-static void c_inspect(struct VM *vm, mrbc_value v[], int argc)
+static void c_symbol_inspect(struct VM *vm, mrbc_value v[], int argc)
 {
   const char *s = mrbc_symid_to_str( mrbc_symbol(v[0]) );
   v[0] = mrbc_string_new_cstr(vm, ":");
@@ -340,7 +340,7 @@ static void c_inspect(struct VM *vm, mrbc_value v[], int argc)
 //================================================================
 /*! (method) to_s
 */
-static void c_to_s(struct VM *vm, mrbc_value v[], int argc)
+static void c_symbol_to_s(struct VM *vm, mrbc_value v[], int argc)
 {
   v[0] = mrbc_string_new_cstr(vm, mrbc_symid_to_str( mrbc_symbol(v[0]) ));
 }
@@ -352,11 +352,11 @@ static void c_to_s(struct VM *vm, mrbc_value v[], int argc)
   CLASS("Symbol")
   FILE("method_table_symbol.h")
 
-  METHOD( "all_symbols", c_all_symbols )
+  METHOD( "all_symbols", c_symbol_all_symbols )
 #if MRBC_USE_STRING
-  METHOD( "inspect", c_inspect )
-  METHOD( "to_s", c_to_s )
-  METHOD( "id2name", c_to_s )
+  METHOD( "inspect", c_symbol_inspect )
+  METHOD( "to_s", c_symbol_to_s )
+  METHOD( "id2name", c_symbol_to_s )
 #endif
   METHOD( "to_sym", c_ineffect )
 */
