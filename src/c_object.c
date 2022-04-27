@@ -3,8 +3,8 @@
   Object, Proc, Nil, True and False class.
 
   <pre>
-  Copyright (C) 2015-2021 Kyushu Institute of Technology.
-  Copyright (C) 2015-2021 Shimane IT Open-Innovation Center.
+  Copyright (C) 2015-2022 Kyushu Institute of Technology.
+  Copyright (C) 2015-2022 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
 
@@ -350,7 +350,7 @@ static void c_object_raise(struct VM *vm, mrbc_value v[], int argc)
 }
 
 
-#ifdef MRBC_DEBUG
+#if defined(MRBC_DEBUG)
 //================================================================
 /*! (method - debug) object_id
  */
@@ -411,24 +411,37 @@ static void c_object_instance_variables(struct VM *vm, mrbc_value v[], int argc)
 }
 
 
+#if !defined(MRBC_ALLOC_LIBC)
 //================================================================
 /*! (method - debug) memory_statistics
  */
-#if !defined(MRBC_ALLOC_LIBC)
 static void c_object_memory_statistics(struct VM *vm, mrbc_value v[], int argc)
 {
-  int total, used, free, frag;
-  mrbc_alloc_statistics(&total, &used, &free, &frag);
+  struct MRBC_ALLOC_STATISTICS mem;
 
-  mrbc_printf("Memory Statistics\n");
-  mrbc_printf("  Total: %d\n", total);
-  mrbc_printf("  Used : %d\n", used);
-  mrbc_printf("  Free : %d\n", free);
-  mrbc_printf("  Frag.: %d\n", frag);
+  mrbc_alloc_statistics( &mem );
+  if( argc == 0 || mrbc_type(v[1]) == MRBC_TT_TRUE ) {
+    mrbc_printf("Memory Statistics\n");
+    mrbc_printf("  Total: %d\n", mem.total);
+    mrbc_printf("  Used : %d\n", mem.used);
+    mrbc_printf("  Free : %d\n", mem.free);
+    mrbc_printf("  Frag.: %d\n", mem.fragmentation);
+  }
 
-  SET_NIL_RETURN();
+  // make a return value.
+  mrbc_value ret = mrbc_hash_new(vm, 4);
+  mrbc_hash_set(&ret, &mrbc_symbol_value( mrbc_str_to_symid("total") ),
+		      &mrbc_integer_value( mem.total ));
+  mrbc_hash_set(&ret, &mrbc_symbol_value( mrbc_str_to_symid("used") ),
+		      &mrbc_integer_value( mem.used ));
+  mrbc_hash_set(&ret, &mrbc_symbol_value( mrbc_str_to_symid("free") ),
+		      &mrbc_integer_value( mem.free ));
+  mrbc_hash_set(&ret, &mrbc_symbol_value( mrbc_str_to_symid("fragmentation") ),
+		      &mrbc_integer_value( mem.fragmentation ));
+
+  SET_RETURN(ret);
 }
-#endif  // MRBC_ALLOC_LIBC)
+#endif  // MRBC_ALLOC_LIBC
 #endif  // MRBC_DEBUG
 
 
