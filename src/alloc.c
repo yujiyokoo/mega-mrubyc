@@ -3,8 +3,8 @@
   mrubyc memory management.
 
   <pre>
-  Copyright (C) 2015-2020 Kyushu Institute of Technology.
-  Copyright (C) 2015-2020 Shimane IT Open-Innovation Center.
+  Copyright (C) 2015-2022 Kyushu Institute of Technology.
+  Copyright (C) 2015-2022 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
 
@@ -326,7 +326,7 @@ static void add_free_block(MEMORY_POOL *pool, FREE_BLOCK *target)
   }
   pool->free_blocks[index] = target;
 
-#ifdef MRBC_DEBUG
+#if defined(MRBC_DEBUG)
   SET_VM_ID( target, 0xff );
   memset( (uint8_t *)target + sizeof(FREE_BLOCK) - sizeof(FREE_BLOCK *), 0xff,
           BLOCK_SIZE(target) - sizeof(FREE_BLOCK) );
@@ -560,7 +560,7 @@ void * mrbc_raw_alloc(unsigned int size)
   SET_USED_BLOCK(target);
   SET_VM_ID( target, 0 );
 
-#ifdef MRBC_DEBUG
+#if defined(MRBC_DEBUG)
   memset( (uint8_t *)target + sizeof(USED_BLOCK), 0xaa,
           BLOCK_SIZE(target) - sizeof(USED_BLOCK) );
 #endif
@@ -794,34 +794,30 @@ int mrbc_get_vm_id(void *ptr)
 #endif	// defined(MRBC_ALLOC_VMID)
 
 
-#if defined(MRBC_DEBUG)
 //================================================================
 /*! statistics
 
-  @param  total		returns total memory.
-  @param  used		returns used memory.
-  @param  free		returns free memory.
-  @param  fragmentation	returns memory fragmentation
+  @param  ret		pointer to return value.
 */
-void mrbc_alloc_statistics(int *total, int *used, int *free, int *fragmentation)
+void mrbc_alloc_statistics( struct MRBC_ALLOC_STATISTICS *ret )
 {
   MEMORY_POOL *pool = memory_pool;
-  *total = pool->size;
-  *used = 0;
-  *free = 0;
-  *fragmentation = -1;
-
   USED_BLOCK *block = BLOCK_TOP(pool);
   int flag_used_free = IS_USED_BLOCK(block);
 
+  ret->total = pool->size;
+  ret->used = 0;
+  ret->free = 0;
+  ret->fragmentation = -1;
+
   while( block < (USED_BLOCK *)BLOCK_END(pool) ) {
     if( IS_FREE_BLOCK(block) ) {
-      *free += BLOCK_SIZE(block);
+      ret->free += BLOCK_SIZE(block);
     } else {
-      *used += BLOCK_SIZE(block);
+      ret->used += BLOCK_SIZE(block);
     }
     if( flag_used_free != IS_USED_BLOCK(block) ) {
-      (*fragmentation)++;
+      ret->fragmentation++;
       flag_used_free = IS_USED_BLOCK(block);
     }
     block = PHYS_NEXT(block);
@@ -829,6 +825,7 @@ void mrbc_alloc_statistics(int *total, int *used, int *free, int *fragmentation)
 }
 
 
+#if defined(MRBC_DEBUG)
 //================================================================
 /*! print memory block for debug.
 
