@@ -92,7 +92,7 @@ typedef struct IREP mrb_irep;
   IREP Catch Handler
 */
 typedef struct IREP_CATCH_HANDLER {
-  uint8_t type;		//!< enum mrb_catch_type, 1 byte
+  uint8_t type;		//!< enum mrb_catch_type, 1 byte. 0=rescue, 1=ensure
   uint8_t begin[4];	//!< The starting address to match the hander. Includes this.
   uint8_t end[4];	//!< The endpoint address that matches the hander. Not Includes this.
   uint8_t target[4];	//!< The address to jump to if a match is made.
@@ -184,6 +184,10 @@ int mrbc_vm_run(struct VM *vm);
    MRBC_BIG_ENDIAN) && MRBC_REQUIRE_32BIT_ALIGNMENT
    (e.g.) OpenRISC
 */
+#if defined(MRBC_REQUIRE_32BIT_ALIGNMENT) && !defined(MRBC_REQUIRE_64BIT_ALIGNMENT)
+#define MRBC_REQUIRE_64BIT_ALIGNMENT
+#endif
+
 
 //================================================================
 /*! Get 16bit int value from memory.
@@ -260,7 +264,7 @@ static inline uint32_t bin_to_uint32( const void *s )
 */
 static inline int64_t bin_to_int64( const void *s )
 {
-#if defined(MRBC_LITTLE_ENDIAN) && !defined(MRBC_REQUIRE_32BIT_ALIGNMENT)
+#if defined(MRBC_LITTLE_ENDIAN) && !defined(MRBC_REQUIRE_64BIT_ALIGNMENT)
   // Little endian, no alignment.
   uint64_t x = *((uint64_t *)s);
   uint64_t y = (x << 56);
@@ -273,12 +277,12 @@ static inline int64_t bin_to_int64( const void *s )
   y |= (x >> 56);
   return y;
 
-#elif defined(MRBC_BIG_ENDIAN) && !defined(MRBC_REQUIRE_32BIT_ALIGNMENT)
+#elif defined(MRBC_BIG_ENDIAN) && !defined(MRBC_REQUIRE_64BIT_ALIGNMENT)
   // Big endian, no alignment.
   return *((uint64_t *)s);
 
-#elif defined(MRBC_REQUIRE_32BIT_ALIGNMENT)
-  // 32bit alignment required.
+#elif defined(MRBC_REQUIRE_64BIT_ALIGNMENT)
+  // 64bit alignment required.
   uint8_t *p = (uint8_t *)s;
   uint64_t x = *p++;
   x <<= 8;
@@ -311,40 +315,40 @@ static inline int64_t bin_to_int64( const void *s )
 */
 static inline double bin_to_double64( const void *s )
 {
-#if defined(MRBC_LITTLE_ENDIAN) && !defined(MRBC_REQUIRE_32BIT_ALIGNMENT)
+#if defined(MRBC_LITTLE_ENDIAN) && !defined(MRBC_REQUIRE_64BIT_ALIGNMENT)
   // Little endian, no alignment.
   return *((double *)s);
 
-#elif defined(MRBC_BIG_ENDIAN) && !defined(MRBC_REQUIRE_32BIT_ALIGNMENT)
+#elif defined(MRBC_BIG_ENDIAN) && !defined(MRBC_REQUIRE_64BIT_ALIGNMENT)
   // Big endian, no alignment.
   double x;
   uint8_t *p1 = (uint8_t*)s;
   uint8_t *p2 = (uint8_t*)&x + 7;
   int i;
   for( i = 7; i >= 0; i-- ) {
-    *p1++ = *p2--;
+    *p2-- = *p1++;
   }
   return x;
 
-#elif defined(MRBC_LITTLE_ENDIAN) && defined(MRBC_REQUIRE_32BIT_ALIGNMENT)
-  // Little endian, 32bit alignment required.
+#elif defined(MRBC_LITTLE_ENDIAN) && defined(MRBC_REQUIRE_64BIT_ALIGNMENT)
+  // Little endian, 64bit alignment required.
+  double x;
+  uint8_t *p1 = (uint8_t*)s;
+  uint8_t *p2 = (uint8_t*)&x;
+  int i;
+  for( i = 7; i >= 0; i-- ) {
+    *p2++ = *p1++;
+  }
+  return x;
+
+#elif defined(MRBC_BIG_ENDIAN) && defined(MRBC_REQUIRE_64BIT_ALIGNMENT)
+  // Big endian, 64bit alignment required.
   double x;
   uint8_t *p1 = (uint8_t*)s;
   uint8_t *p2 = (uint8_t*)&x + 7;
   int i;
   for( i = 7; i >= 0; i-- ) {
-    *p1++ = *p2++;
-  }
-  return x;
-
-#elif defined(MRBC_BIG_ENDIAN) && defined(MRBC_REQUIRE_32BIT_ALIGNMENT)
-  // Big endian, 32bit alignment required.
-  double x;
-  uint8_t *p1 = (uint8_t*)s;
-  uint8_t *p2 = (uint8_t*)&x + 7;
-  int i;
-  for( i = 7; i >= 0; i-- ) {
-    *p1++ = *p2--;
+    *p2-- = *p1++;
   }
   return x;
 

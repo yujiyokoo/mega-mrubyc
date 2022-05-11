@@ -3,8 +3,8 @@
   Global configration of mruby/c VM's
 
   <pre>
-  Copyright (C) 2015-2019 Kyushu Institute of Technology.
-  Copyright (C) 2015-2019 Shimane IT Open-Innovation Center.
+  Copyright (C) 2015-2022 Kyushu Institute of Technology.
+  Copyright (C) 2015-2022 Shimane IT Open-Innovation Center.
 
   This file is distributed under BSD 3-Clause License.
 
@@ -28,11 +28,6 @@
 // maximum number of symbols
 #if !defined(MAX_SYMBOLS_COUNT)
 #define MAX_SYMBOLS_COUNT 255
-#endif
-
-// maximum number of exception depth
-#if !defined(MAX_EXCEPTION_COUNT)
-#define MAX_EXCEPTION_COUNT 16
 #endif
 
 
@@ -85,10 +80,11 @@
 # define MRBC_LITTLE_ENDIAN
 #endif
 
-/* 32it alignment
-   If 32-bit alignment is required, enable the following line.
- */
+/* Word alignment
+   If 32bit and/or 64bit alignment is required, enable the following line.
+*/
 // #define MRBC_REQUIRE_32BIT_ALIGNMENT
+// #define MRBC_REQUIRE_64BIT_ALIGNMENT
 
 // Debug code.
 #if !defined(NDEBUG)
@@ -96,7 +92,7 @@
 #endif
 
 // #define MRBC_NO_TIMER
-
+// #define MRBC_INT64
 // #define MRBC_INT64
 
 #endif
