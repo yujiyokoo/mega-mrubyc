@@ -1,37 +1,30 @@
-from ruby:3.0.4-slim
+FROM ubuntu:bionic
 
-RUN apt update && apt -y upgrade
-RUN apt install -y \
-  bison \
-  gcc \
-  gcc-arm-linux-gnueabi \
-  git \
-  make \
-  qemu \
-  qemu-kvm \
-  qemu-user-static
+RUN apt-get update && \
+    apt-get install -y \
+        build-essential \
+        wget \
+        texinfo \
+        git \
+        default-jre && \
+    apt-get clean
 
-RUN gem update --system
+WORKDIR /tmp
+RUN wget https://github.com/kubilus1/gendev/releases/download/0.7.1/gendev_0.7.1_all.deb
+RUN dpkg -i ./gendev_0.7.1_all.deb
+COPY gendev-mega-mrubyc.patch /tmp
 
-ARG USER_ID
-RUN if [ $USER_ID -eq 0 ]; then export USER_ID=1000; fi && useradd -m -u $USER_ID mrubyc
-RUN mkdir /work && chown mrubyc /work
+WORKDIR /opt/gendev
+RUN patch -p2 < /tmp/gendev-mega-mrubyc.patch
 
-USER mrubyc
-
-VOLUME /work/mrubyc
-COPY --chown=mrubyc Gemfile /work/mrubyc/
-COPY --chown=mrubyc Gemfile.lock /work/mrubyc/
-
-USER root
-WORKDIR /work/mrubyc
-RUN bundle install
-
-USER mrubyc
-ENV CFLAGS="-DMRBC_USE_MATH=1 -DMAX_SYMBOLS_COUNT=500"
-
-RUN git clone https://github.com/mruby/mruby /work/mruby
-ARG MRUBY_TAG
-RUN cd /work/mruby; git fetch --prune; git checkout $MRUBY_TAG; make clean && make
-
-CMD ["bundle", "exec", "mrubyc-test", "-e", "10", "-p", "/work/mruby/build/host/bin/mrbc"]
+# Install rake (needed for buildingmruby) and build mruby
+RUN apt-get update && \
+    apt-get install -y \
+        rake && \
+    apt-get clean
+RUN mkdir /opt/mruby
+WORKDIR /opt
+RUN git clone https://github.com/mruby/mruby.git
+WORKDIR /opt/mruby
+RUN make
+RUN cp bin/* /usr/local/bin/
